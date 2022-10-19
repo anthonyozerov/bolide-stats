@@ -1,3 +1,12 @@
+import matplotlib.pyplot as plt
+import numpy as np
+import random
+
+from matplotlib.lines import Line2D
+
+from .geo_utils import distance_to_angle
+
+
 def plot_lat_result(result, title, filename, max_lat=55, normalize=True, symmetric=False, shower='', theory=None):
     plt.style.use('default')
     plt.rcParams['text.usetex'] = True
@@ -48,16 +57,14 @@ def plot_lat_result(result, title, filename, max_lat=55, normalize=True, symmetr
             y_plot = (y_plot[midpoint:] + np.flipud(y_plot[:midpoint]))/2
         top_y = max(max(y_plot), top_y)
         if i != 400:
-            y_plots[i,:] = y_plot
+            y_plots[i, :] = y_plot
         ax1.plot(x_plot*90, y_plot, color=color, alpha=alpha, linewidth=linewidth)
-
 
     # plot quantiles
     top_quantile = np.quantile(y_plots, 0.90, axis=0)
     bottom_quantile = np.quantile(y_plots, 0.10, axis=0)
     plt.plot(x_plot*90, top_quantile, color='red', linewidth=1, linestyle='--')
     plt.plot(x_plot*90, bottom_quantile, color='red', linewidth=1, linestyle='--')
-
 
     if normalize:
         y_plot = [np.exp(l1*x + l2*x**2 + l3*np.abs(x**3)) for x in x_plot]
@@ -78,26 +85,26 @@ def plot_lat_result(result, title, filename, max_lat=55, normalize=True, symmetr
         plt.xlim(-55, 55)
     if shower == 'LEO':
         shower = 'Leonid'
-    
+
     if theory is not None:
-        if symmetric == True:
+        if symmetric:
             nrows = theory.shape[0]
             midpoint = int(nrows/2)
-            x_plot = theory[midpoint:,0]
-            theory = theory[midpoint:,:]+np.flipud(theory)[midpoint:,:]
+            x_plot = theory[midpoint:, 0]
+            theory = theory[midpoint:, :]+np.flipud(theory)[midpoint:, :]
             theory /= 2
         else:
-            x_plot = theory[:,0]
+            x_plot = theory[:, 0]
         if theory.shape[1] == 2:
-            plt.plot(x_plot, theory[:,1], label='Theoretical')
+            plt.plot(x_plot, theory[:, 1], label='Theoretical')
         elif theory.shape[1] == 6:
-            for i, vel in enumerate([50,55,60,65,68]):
-                plt.plot(x_plot, theory[:,i+1], label=f'Theoretical, {vel}km/s radiant')
+            for i, vel in enumerate([50, 55, 60, 65, 68]):
+                plt.plot(x_plot, theory[:, i+1], label=f'Theoretical, {vel}km/s radiant')
 
     plt.title(shower+' '+title)
     handles, labels = plt.gca().get_legend_handles_labels()
     line = Line2D([0], [0], label='Posterior bolide rate samples', color='black')
-    line2 = Line2D([0], [0], label='Central 80\% of distribution', color='red', linestyle='--')
+    line2 = Line2D([0], [0], label='Central 80% of distribution', color='red', linestyle='--')
     line3 = Line2D([0], [0], label='MAP', color='red', linestyle='-')
     handles.extend([line, line2, line3])
     plt.legend(handles=handles, frameon=False)
@@ -113,7 +120,7 @@ def plot_fov_result(result, title, filename, normalize=False, angle=False, truth
     plt.rcParams['text.usetex'] = True
     plt.rcParams['xtick.direction'] = 'in'
     plt.rcParams['ytick.direction'] = 'in'
-    
+
     fig, ax1 = plt.subplots()
     ax1.xaxis.set_tick_params(which='major', top='on')
 
@@ -147,7 +154,7 @@ def plot_fov_result(result, title, filename, normalize=False, angle=False, truth
             fov3 = m_ap["fov_dist3"]
 
         x_plot = np.linspace(0, 7300, 200)/10000
-        #x_plot = np.linspace(0,9,200)/10
+        # x_plot = np.linspace(0,9,200)/10
         if normalize:
             y_plot = [np.exp(fov1*x + fov2*x**2 + fov3*x**3) for x in x_plot]
         else:
@@ -160,7 +167,7 @@ def plot_fov_result(result, title, filename, normalize=False, angle=False, truth
             x_plot = [distance_to_angle(x) for x in x_plot]
 
         if i != 400:
-            y_plots[i,:] = y_plot
+            y_plots[i, :] = y_plot
         ax1.plot(x_plot, y_plot, color=color, alpha=alpha, linewidth=linewidth)
 
     top_quantile = np.quantile(y_plots, 0.90, axis=0)
