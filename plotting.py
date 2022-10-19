@@ -1,10 +1,33 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import random
+import cartopy.crs as ccrs
 
 from matplotlib.lines import Line2D
+import matplotlib.cm as cmx
+from matplotlib.colors import Normalize
 
-from .geo_utils import distance_to_angle
+from geo_utils import distance_to_angle
+
+from bolides.constants import GLM_STEREO_MIDPOINT
+
+
+def plot_polygons(gdf, crs=ccrs.EckertIV(central_longitude=GLM_STEREO_MIDPOINT)):
+    column = 'area'
+    print(gdf[column])
+    crs_proj4 = crs.proj4_init
+    gdf = gdf.to_crs(crs_proj4)
+    fig, ax = plt.subplots(subplot_kw={'projection': crs})
+    cmap = plt.get_cmap('viridis')
+    cNorm = Normalize(vmin=min(gdf[column]), vmax=max(gdf[column]))
+    scalarMap = cmx.ScalarMappable(norm=cNorm, cmap=cmap)
+    colors = [scalarMap.to_rgba(num) for num in gdf[column]]
+    #TODO: DOESN'T WORK
+    ax.add_geometries(gdf['geometry'], crs=crs, color=colors, alpha=0.5)
+    ax.coastlines()
+    plt.show()
+    gdf.plot(column)
+    plt.show()
 
 
 def plot_lat_result(result, title, filename, max_lat=55, normalize=True, symmetric=False, shower='', theory=None):
@@ -104,14 +127,14 @@ def plot_lat_result(result, title, filename, max_lat=55, normalize=True, symmetr
     plt.title(shower+' '+title)
     handles, labels = plt.gca().get_legend_handles_labels()
     line = Line2D([0], [0], label='Posterior bolide rate samples', color='black')
-    line2 = Line2D([0], [0], label='Central 80% of distribution', color='red', linestyle='--')
+    line2 = Line2D([0], [0], label='Central 80\% of distribution', color='red', linestyle='--')
     line3 = Line2D([0], [0], label='MAP', color='red', linestyle='-')
     handles.extend([line, line2, line3])
     plt.legend(handles=handles, frameon=False)
     plt.gcf().set_size_inches((4, 3))
-    plt.savefig(f'posteriors/{filename}.png', dpi=300, bbox_inches='tight')
-    plt.savefig(f'posteriors/{filename}.pgf', bbox_inches='tight')
-    plt.savefig(f'posteriors/{filename}.pdf', bbox_inches='tight')
+    plt.savefig(f'plots/{filename}.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'plots/{filename}.pgf', bbox_inches='tight')
+    plt.savefig(f'plots/{filename}.pdf', bbox_inches='tight')
     plt.show()
 
 
@@ -202,9 +225,9 @@ def plot_fov_result(result, title, filename, normalize=False, angle=False, truth
     handles.extend([line, line2, line3])
     plt.legend(handles=handles, frameon=False)
     plt.gcf().set_size_inches((8, 3))
-    plt.savefig(f'posteriors/{filename}.png', dpi=300, bbox_inches='tight')
-    plt.savefig(f'posteriors/{filename}.pgf', bbox_inches='tight')
-    plt.savefig(f'posteriors/{filename}.pdf', bbox_inches='tight')
+    plt.savefig(f'plots/{filename}.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'plots/{filename}.pgf', bbox_inches='tight')
+    plt.savefig(f'plots/{filename}.pdf', bbox_inches='tight')
     plt.show()
 
 
@@ -229,7 +252,7 @@ def plot_pitch_result(result, title, filename, normalize=False):
     plt.xlabel('pixel area (microns$^2$)')
     plt.ylabel('Bolide rate')
     plt.title(title+' in 400 NUTS samples')
-    plt.savefig(f'posteriors/{filename}.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'plots/{filename}.png', dpi=300, bbox_inches='tight')
 
 
 def get_pixel_from_dist(dist, dist_to_pixel):
@@ -262,4 +285,4 @@ def plot_fov_result_pixel(result, title, filename, dist_to_pixel):
     plt.xlabel('distance from fov center (pixels)')
     plt.ylabel('Bolide rate')
     plt.title(title+' in 400 NUTS samples')
-    plt.savefig(f'posteriors/{filename}.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'plots/{filename}.png', dpi=300, bbox_inches='tight')

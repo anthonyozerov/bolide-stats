@@ -24,4 +24,4 @@ g16 = bdf_subset[bdf_subset.detectedBy == 'G16']
 g17 = bdf_subset[bdf_subset.detectedBy == 'G17']
 
 run_model('param-leo', g16=g16, g17=g17, nonparam=False, n_points=100, showers=['LEO'])
-run_model('nonparam', g16=g16, g17=g17, nonparam=True, n_points=100, showers=[])
+#run_model('nonparam', g16=g16, g17=g17, nonparam=True, n_points=100, showers=[])

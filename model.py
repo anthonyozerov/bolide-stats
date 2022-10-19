@@ -1,4 +1,3 @@
-from shapely.geometry import Point, LineString, Polygon
 import numpy as np
 import matplotlib.pyplot as plt
 from geopandas import GeoDataFrame
@@ -8,19 +7,25 @@ from global_land_mask import globe
 import pymc as pm
 from tqdm import tqdm
 import pyproj
+import cartopy.crs as ccrs
 
-from shapely import affinity
-from shapely.ops import polygonize
-from scipy.spatial import Voronoi
+from shapely.geometry import Point
 
 from bolides.fov_utils import get_boundary
 from bolides import ShowerDataFrame
 from bolides.constants import GOES_W_LON
 
-from geo_utils import get_pitch, get_flash_density, points_within
+from geo_utils import get_pitch, get_flash_density
+from partition import random_partition
 
 
-def get_data(points, counts, areas, fov_center=None, durations=None, shower_data_dict=None, mapping=None):
+def get_data(gdf, fov_center=None, mapping=None):
+    centroids = [list(poly.centroid.xy) for poly in gdf.geometry]
+    xs = [c[0][0] for c in centroids]
+    ys = [c[1][0] for c in centroids]
+    points = [Point(x, y) for x, y in zip(xs, ys)]
+    points = GeoDataFrame(geometry=points, crs=gdf.crs).to_crs('epsg:4326').geometry
+
     lons = np.array([p.x for p in points])
     lats = np.array([p.y for p in points])
     coords = list(zip(lats, lons))
@@ -31,6 +36,7 @@ def get_data(points, counts, areas, fov_center=None, durations=None, shower_data
         print('getting pixel pitches')
         pitches = np.array([get_pitch(mapping, p.y, p.x) for p in tqdm(points)])
         pitches /= 900
+
 
     from netCDF4 import Dataset
     flash_data = Dataset('data/LISOTD_HRFC_V2.3.2015.nc')
@@ -45,29 +51,23 @@ def get_data(points, counts, areas, fov_center=None, durations=None, shower_data
 
     lats /= 90
 
-    if fov_center is not None:
-        data_dict = {'lat': lats, 'fov_dist': fov_dists, 'flash_dens': flash_dens,
-                     'land': land, 'area': areas, 'duration': durations}
-        data_dict = dict(data_dict, **shower_data_dict)
-        data = pd.DataFrame(data_dict)
-    else:
-        data = pd.DataFrame({'lat': np.abs(lats), 'lat2': np.abs(lats)**2, 'lat4': lats**4,
-                             'flash_dens': flash_dens, 'land': land, 'area': areas})
+    gdf['lat'] = lats
+    gdf['fov_dist'] = fov_dists
+    gdf['flash_dens'] = flash_dens
+    gdf['land'] = land
 
-    data['count'] = counts
-    return data
+    return gdf
 
 
 def fit(data, **kwargs):
-
-    lat = data['lat']
-    fov = data['fov_dist']
-    area = data['area'].values
+    lat = np.array(data['lat'])
+    fov = np.array(data['fov_dist'])
+    area = np.array(data['area'])
     area_normalizer = max(area)
     area = area/area_normalizer
-    count = data['count'].values
-    duration = data['duration'].values
-    non_shower_cols = ['lat', 'fov_dist', 'flash_dens', 'area', 'count', 'land', 'duration']
+    count = np.array(data['count'])
+    duration = np.array(data['duration'])
+    non_shower_cols = ['lat', 'fov_dist', 'flash_dens', 'area', 'count', 'land', 'duration', 'geometry']
     showers = [col for col in data.columns if col not in non_shower_cols]
     plt.hist(count)
     plt.show()
@@ -94,13 +94,11 @@ def fit(data, **kwargs):
         indicators = []
         if len(showers) > 0:
             for s in showers:
-                print(s)
                 intercept = pm.Normal(s+"intercept", mu=0, sigma=200)
                 l1 = pm.Normal(s+"lat1", mu=0, sigma=200)
                 l2 = pm.Normal(s+"lat2", mu=0, sigma=200)
                 l3 = pm.Normal(s+"lat3", mu=0, sigma=200)
                 indicators.append(np.array(data[s]))
-                print(data[s])
                 newtheta = intercept + l1*lat + l2*lat**2 + l3*np.abs(lat**3)
                 thetas.append(newtheta)
 
@@ -108,6 +106,7 @@ def fit(data, **kwargs):
         print('creating y')
         showersum = indicators[0]*np.exp(thetas[0])
         for i in range(1, len(thetas)):
+            print(indicators[i])
             showersum += indicators[i]*np.exp(thetas[i])
         y = pm.Poisson("y", mu=area*duration*np.exp(fov_theta)*(np.exp(theta)+showersum), observed=count)
 
@@ -153,7 +152,7 @@ def fit_nonparam(data, **kwargs):
         y = pm.Poisson("y", mu=area*duration*fov_factor*lat_factor, observed=count)
 
     with mdl_fish:
-        # import pymc.sampling_jax
+        import pymc.sampling_jax
         result_pos = pm.sampling_jax.sample_numpyro_nuts(100, tune=100, chains=4)
         result_map = pm.find_MAP()
     with mdl_fish:
@@ -170,25 +169,7 @@ def get_polygons(fov, lon, transform=True, plot=True, n_points=1000):
     gdf = GeoDataFrame(geometry=[fov], crs=aeqd)
     fov = gdf.to_crs(geo).geometry[0]
 
-    shape = fov
-    points = points_within(n_points, shape, bbox=True)
-    min_x = min([p.x for p in points])
-    min_y = min([p.y for p in points])
-    coords = list(zip([p.x-min_x for p in points], [p.y-min_y for p in points]))
-    shape = affinity.translate(fov, -min_x, -min_y)
-    for i in range(5):
-        vor = Voronoi(coords)
-        lines = [LineString(vor.vertices[line]) for line in vor.ridge_vertices if -1 not in line]
-        polygons = list(polygonize(lines))
-        polygons = [poly.intersection(shape) for poly in polygons]
-        good_polygons = []
-        for poly in polygons:
-            if poly.area > 0:
-                good_polygons.append(poly)
-        polygons = good_polygons
-        points = [poly.centroid for poly in polygons]
-
-    polygons = [affinity.translate(poly, min_x, min_y) for poly in polygons]
+    polygons = random_partition(fov, n_points=n_points, iterations=5)
     gdf = GeoDataFrame(geometry=polygons, crs=geo)
     if plot:
         gdf.plot()
@@ -199,45 +180,13 @@ def get_polygons(fov, lon, transform=True, plot=True, n_points=1000):
     return polygons
 
 
-def get_polygons_globe():
-    cea = pyproj.Proj(proj='cea', ellps='WGS84', datum='WGS84', lon_0=0).srs
-
-    fov = Polygon([[-180, 90], [180, 90], [180, -90], [-180, -90]])
-
-    # Voronoi doesn't work properly with points below (0,0) so set lowest point to (0,0)
-    x_shift = fov.bounds[0]
-    y_shift = fov.bounds[1]
-
-    shape = affinity.translate(fov, -x_shift, -y_shift)
-    points = points_within(1000, shape)
-    points += [shape.boundary.interpolate(dist, normalized=True) for dist in np.linspace(0, 1, 1000)]
-    coords = list(zip([p.x for p in points], [p.y for p in points]))
-    for i in range(5):
-        vor = Voronoi(coords)
-        lines = [LineString(vor.vertices[line]) for line in vor.ridge_vertices if -1 not in line]
-        polygons = list(polygonize(lines))
-        polygons = [poly.intersection(shape) for poly in polygons]
-        points = [poly.centroid for poly in polygons]
-        coords = list(zip([p.x for p in points], [p.y for p in points]))
-
-    polygons = [affinity.translate(poly, x_shift, y_shift) for poly in polygons]
-    gdf = GeoDataFrame(geometry=polygons, crs='epsg:4326')
-    polygons = gdf.to_crs(cea).geometry
-    return polygons
-
-
-def get_polygons_and_counts(bdf, fov=None, lon=None, showers=[], return_poly=False, n_points=1000):
+def discretize(bdf, fov=None, lon=None, showers=[], return_poly=False, n_points=1000):
     print('making polygons')
-    if fov is not None and lon is not None:
 
-        cea = pyproj.Proj(proj='cea', ellps='WGS84', datum='WGS84', lon_0=lon).srs
+    cea = pyproj.Proj(proj='cea', ellps='WGS84', datum='WGS84', lon_0=lon).srs
+    polygons = get_polygons(fov, lon, transform=True, n_points=n_points)
+    areas = [poly.area for poly in polygons]
 
-        polygons = get_polygons(fov, lon, n_points=n_points)
-        areas = [poly.area for poly in polygons]
-    else:
-        cea = pyproj.Proj(proj='cea', ellps='WGS84', datum='WGS84', lon_0=0).srs
-        polygons = get_polygons_globe()
-        areas = [poly.area for poly in polygons]
     print(f'{len(polygons)} polygons made')
 
     print('counting points')
@@ -273,35 +222,31 @@ def get_polygons_and_counts(bdf, fov=None, lon=None, showers=[], return_poly=Fal
     areas = areas*(len(showers)+1)  # repeat areas
     polygons = list(polygons)*(len(showers)+1)  # repeat polygons
 
-    centroids = [list(c.centroid.xy) for c in polygons]
-    xs = [c[0][0] for c in centroids]
-    ys = [c[1][0] for c in centroids]
-    points = [Point(x, y) for x, y in zip(xs, ys)]
-
     # adjust durations for GOES-17
     if lon == GOES_W_LON:
         print('adjusting g17 durations')
         fov_i, fov_ni = get_boundary(['goes-w-i', 'goes-w-ni'], crs=cea)
 
         # XOR representing that the point is in one but not the other
-        within = [(p.within(fov_i) ^ p.within(fov_ni)) for p in points]
+        half_observed = fov_i.symmetric_difference(fov_ni)
+        affected_prop = np.array([poly.intersection(half_observed).area/poly.area for poly in polygons])
 
         # halve the duration for any polygons in one FOV but not the other
-        durations[within] *= 0.5
+        durations *= 1-(affected_prop)/2
 
     # test gdf for plotting
-    gdf_poly = GeoDataFrame(data={'counts': counts, 'areas': areas, 'durations': durations}, geometry=polygons, crs=cea)
-    gdf_poly['density'] = gdf_poly.counts/(gdf_poly.areas*gdf_poly.durations)
-    gdf_poly.plot('density')
-    plt.show()
+    #gdf_poly = GeoDataFrame(data={'counts': counts, 'areas': areas, 'durations': durations}, geometry=polygons, crs=cea)
+    #gdf_poly['density'] = gdf_poly.counts/(gdf_poly.areas*gdf_poly.durations)
+    #gdf_poly.plot('density')
+    #plt.show()
 
-    gdf = GeoDataFrame(geometry=points, crs=cea)
-    points = gdf.to_crs('epsg:4326').geometry
+    data_dict = {'count': counts, 'area': areas, 'duration': durations}
+    data_dict = dict(data_dict, **shower_data_dict)
+    gdf = GeoDataFrame(data_dict, geometry=polygons, crs=cea)
 
-    if not return_poly:
-        return points, counts, areas, durations, shower_data_dict
-    else:
-        return gdf_poly, points
+    #points = gdf.to_crs('epsg:4326').geometry
+
+    return gdf
 
 
 def full_model(g16=None, g17=None, separate=False, nonparam=False, n_points=1000, showers=[]):
@@ -313,42 +258,20 @@ def full_model(g16=None, g17=None, separate=False, nonparam=False, n_points=1000
 
     fit_func = fit_nonparam if nonparam else fit
 
-    # TABLE_PATH = '/home/aozerov/projects/seti/nav-tables'
-    # pixels_g16 = pd.read_csv(f'{TABLE_PATH}/G16_nav.csv')
-    # pixels_g17 = pd.read_csv(f'{TABLE_PATH}/G17_nav_approx.csv')
-
     datas = []
     for num, bdf in enumerate([g16, g17]):
         fov = [goes_e_fov, goes_w_fov][num]
         fov_center = [goes_e, goes_w][num]
-        # mapping = [pixels_g16, pixels_g17][num]
-        points, point_counts, areas, durations, shower_data_dict = get_polygons_and_counts(bdf, fov=fov, lon=fov_center[1], n_points=n_points, showers=showers)
-        datas.append(get_data(points, point_counts, areas, fov_center, durations, shower_data_dict))  # , mapping))
+        gdf = discretize(bdf, fov=fov, lon=fov_center[1], n_points=n_points, showers=showers)
+        datas.append(get_data(gdf, fov_center=fov_center))
     if not separate:
-        data = pd.concat(datas, ignore_index=True)
+        datas = [d.to_crs(datas[0].crs) for d in datas]
+        data = GeoDataFrame(pd.concat(datas, ignore_index=True), crs=datas[0].crs)
         result = fit_func(data)
-        return result
+        return dict(result, data=data)
     else:
         results = []
         for data in datas:
             result = fit_func(data)
             results.append(result)
-        return results
-
-
-def full_model_usg(bdf):
-
-    points, point_counts, areas = get_polygons_and_counts(bdf)
-    data = get_data(points, point_counts, areas)
-    print(len(data))
-    result = fit(data)
-    return result
-
-
-def plot_polygons(gdf, filename):
-    gdf.plot()
-    fig = plt.gcf()
-    fig.axes[0].xaxis.set_visible(False)
-    fig.axes[0].yaxis.set_visible(False)
-    plt.savefig(filename+'.svg', bbox_inches='tight')
-    plt.show()
+        return results, datas

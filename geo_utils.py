@@ -5,32 +5,6 @@ import numpy as np
 import random
 
 
-def points_within(number, polygon, bbox=False):
-    """Get points within a given polygon
-
-    Parameters
-    ----------
-    number : int
-        Number of points
-    polygon : Shapely Polygon
-        Polygon to get points within
-    bbox : bool
-        Whether to keep points falling outside the polygon
-
-    Returns
-    -------
-    list of Shapely Point
-        Points within the polygon
-    """
-    points = []
-    if bbox:
-        polygon = polygon.buffer(sqrt(polygon.area/pi)/10)
-    minx, miny, maxx, maxy = polygon.bounds
-    while len(points) < number:
-        pnt = Point(random.uniform(minx, maxx), random.uniform(miny, maxy))
-        if polygon.contains(pnt) or bbox:
-            points.append(pnt)
-    return points
 
 
 def get_flash_density(flash_data, lat, lon):
