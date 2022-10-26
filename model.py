@@ -196,10 +196,12 @@ def discretize(bdf, fov=None, lon=None, showers=[], return_poly=False, n_points=
     bdf_cea = bdf.to_crs(cea)
     counts = []
     if len(showers) > 0:
-        sdf = ShowerDataFrame()
+        sdf = pd.read_csv('data/showers.csv')
+        sdf.__class__ = ShowerDataFrame
+        # sdf = ShowerDataFrame(source='csv', file='data/showers.csv')
         sdf = sdf[sdf.References.str.contains('2016, Icarus, 266')]
-        bdfs = [bdf_cea.filter_shower(shower=showers, exclude=True, padding=10)]
-        bdfs += [bdf_cea.filter_shower(shower=s, padding=10) for s in showers]
+        bdfs = [bdf_cea.filter_shower(shower=showers, exclude=True, padding=10, sdf=sdf)]
+        bdfs += [bdf_cea.filter_shower(shower=s, padding=10, sdf=sdf) for s in showers]
         is_shower = np.zeros((len(polygons)*(len(showers)+1), len(showers)))
         durations = [(365.25-(10*len(showers)))/365.25]*len(polygons)
         for i, bdf in enumerate(bdfs):
