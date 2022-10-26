@@ -7,7 +7,7 @@ from shapely.geometry import Point, LineString
 from shapely.ops import unary_union
 
 
-def random_partition(polygon, n_points, iterations):
+def random_partition(polygon, n_points, iterations, cover=False):
 
     points = points_within(n_points, polygon, cut=False, expand=1/5)
 
@@ -31,18 +31,20 @@ def random_partition(polygon, n_points, iterations):
 
     polygons = [affinity.translate(poly, min_x, min_y) for poly in polygons]
 
-    covered = unary_union(polygons)
-    uncovered = polygon.difference(covered)
-    uncovered = uncovered.buffer(0)
-    if uncovered.geom_type == 'MultiPolygon':
-        for poly in uncovered.geoms:
-            poly = poly.buffer(0)
-            if poly.area > 0:
-                polygons.append(poly)
-    else:
+    if cover:
+        covered = unary_union(polygons)
+
+        uncovered = polygon.difference(covered)
         uncovered = uncovered.buffer(0)
-        if uncovered.area > 0:
-            polygons.append(uncovered)
+        if uncovered.geom_type == 'MultiPolygon':
+            for poly in uncovered.geoms:
+                poly = poly.buffer(0)
+                if poly.area > 0:
+                    polygons.append(poly)
+        else:
+            uncovered = uncovered.buffer(0)
+            if uncovered.area > 0:
+                polygons.append(uncovered)
 
     return polygons
 

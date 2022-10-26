@@ -22,8 +22,8 @@ def plot_polygons(gdf, crs=ccrs.EckertIV(central_longitude=GLM_STEREO_MIDPOINT))
     cNorm = Normalize(vmin=min(gdf[column]), vmax=max(gdf[column]))
     scalarMap = cmx.ScalarMappable(norm=cNorm, cmap=cmap)
     colors = [scalarMap.to_rgba(num) for num in gdf[column]]
-    #TODO: DOESN'T WORK
-    ax.add_geometries(gdf['geometry'], crs=crs, color=colors, alpha=0.5)
+    for num, poly in enumerate(gdf.geometry):
+        ax.add_geometries([poly], crs=crs, color=colors[num])
     ax.coastlines()
     plt.show()
     gdf.plot(column)
@@ -101,7 +101,10 @@ def plot_lat_result(result, title, filename, max_lat=55, normalize=True, symmetr
 
     plt.xlabel('Latitude (°)')
     plt.ylabel('Normalized bolide flux')
-    plt.ylim(0, top_y)
+    try:
+        plt.ylim(0, top_y)
+    except ValueError:
+        print('bad input--did it converge?')
     if symmetric:
         plt.xlim(0, 55)
     else:
@@ -135,7 +138,7 @@ def plot_lat_result(result, title, filename, max_lat=55, normalize=True, symmetr
     plt.savefig(f'plots/{filename}.png', dpi=300, bbox_inches='tight')
     plt.savefig(f'plots/{filename}.pgf', bbox_inches='tight')
     plt.savefig(f'plots/{filename}.pdf', bbox_inches='tight')
-    plt.show()
+    plt.close()
 
 
 def plot_fov_result(result, title, filename, normalize=False, angle=False, truth=None):
@@ -201,12 +204,12 @@ def plot_fov_result(result, title, filename, normalize=False, angle=False, truth
     #plt.plot(x_plot*10, bottom_quantile, color='lightblue')
     if truth is not None and angle:
         ax2 = ax1.twinx()
-        x = truth['x']
-        bg = truth['bg']
-        raw = truth['raw']
+        x = truth['AOI']
+        bg = truth['Background']
+        raw = truth['Lightning']
         ax2.plot(x, bg, label="Per background")
         ax2.plot(x, raw, label="Raw signal")
-        ax2.set_ylim(0, 1)
+        ax2.set_ylim(0, 1.1*max(max(bg), max(raw)))
         ax2.set_ylabel('Fraction of lightning signal reaching detector')
 
     if angle:
@@ -228,7 +231,7 @@ def plot_fov_result(result, title, filename, normalize=False, angle=False, truth
     plt.savefig(f'plots/{filename}.png', dpi=300, bbox_inches='tight')
     plt.savefig(f'plots/{filename}.pgf', bbox_inches='tight')
     plt.savefig(f'plots/{filename}.pdf', bbox_inches='tight')
-    plt.show()
+    plt.close()
 
 
 def plot_pitch_result(result, title, filename, normalize=False):
@@ -253,6 +256,7 @@ def plot_pitch_result(result, title, filename, normalize=False):
     plt.ylabel('Bolide rate')
     plt.title(title+' in 400 NUTS samples')
     plt.savefig(f'plots/{filename}.png', dpi=300, bbox_inches='tight')
+    plt.close()
 
 
 def get_pixel_from_dist(dist, dist_to_pixel):
@@ -286,3 +290,4 @@ def plot_fov_result_pixel(result, title, filename, dist_to_pixel):
     plt.ylabel('Bolide rate')
     plt.title(title+' in 400 NUTS samples')
     plt.savefig(f'plots/{filename}.png', dpi=300, bbox_inches='tight')
+    plt.close()

@@ -15,7 +15,7 @@ from bolides.fov_utils import get_boundary
 from bolides import ShowerDataFrame
 from bolides.constants import GOES_W_LON
 
-from geo_utils import get_pitch, get_flash_density
+from geo_utils import get_pitch, get_flash_density, get_areas
 from partition import random_partition
 
 
@@ -63,25 +63,25 @@ def fit(data, **kwargs):
     lat = np.array(data['lat'])
     fov = np.array(data['fov_dist'])
     area = np.array(data['area'])
-    area_normalizer = max(area)
-    area = area/area_normalizer
+    #area_normalizer = max(area)
+    #area = area/area_normalizer
     count = np.array(data['count'])
     duration = np.array(data['duration'])
-    non_shower_cols = ['lat', 'fov_dist', 'flash_dens', 'area', 'count', 'land', 'duration', 'geometry']
+    non_shower_cols = ['lat', 'fov_dist', 'flash_dens', 'area', 'count', 'land', 'duration', 'geometry', 'sat']
     showers = [col for col in data.columns if col not in non_shower_cols]
-    plt.hist(count)
-    plt.show()
+    #plt.hist(count)
+    #plt.show()
 
     with pm.Model() as mdl_fish:
 
         # define priors, weakly informative Normal
-        intercept = pm.Normal("intercept", mu=0, sigma=200)
-        l1 = pm.Normal("lat1", mu=0, sigma=200)
-        l2 = pm.Normal("lat2", mu=0, sigma=200)
-        l3 = pm.Normal("lat3", mu=0, sigma=200)
-        f1 = pm.Normal("fov_dist", mu=0, sigma=200)
-        f2 = pm.Normal("fov_dist2", mu=0, sigma=200)
-        f3 = pm.Normal("fov_dist3", mu=0, sigma=200)
+        intercept = pm.Normal("intercept", mu=0, sigma=1e6)
+        l1 = pm.Normal("lat1", mu=0, sigma=1e6)
+        l2 = pm.Normal("lat2", mu=0, sigma=1e6)
+        l3 = pm.Normal("lat3", mu=0, sigma=1e6)
+        f1 = pm.Normal("fov_dist", mu=0, sigma=1e6)
+        f2 = pm.Normal("fov_dist2", mu=0, sigma=1e6)
+        f3 = pm.Normal("fov_dist3", mu=0, sigma=1e6)
 
         # define linear model and exp link function
         theta = intercept + l1*lat + l2*lat**2 + l3*np.abs(lat**3)
@@ -94,10 +94,10 @@ def fit(data, **kwargs):
         indicators = []
         if len(showers) > 0:
             for s in showers:
-                intercept = pm.Normal(s+"intercept", mu=0, sigma=200)
-                l1 = pm.Normal(s+"lat1", mu=0, sigma=200)
-                l2 = pm.Normal(s+"lat2", mu=0, sigma=200)
-                l3 = pm.Normal(s+"lat3", mu=0, sigma=200)
+                intercept = pm.Normal(s+"intercept", mu=0, sigma=1e6)
+                l1 = pm.Normal(s+"lat1", mu=0, sigma=1e6)
+                l2 = pm.Normal(s+"lat2", mu=0, sigma=1e6)
+                l3 = pm.Normal(s+"lat3", mu=0, sigma=1e6)
                 indicators.append(np.array(data[s]))
                 newtheta = intercept + l1*lat + l2*lat**2 + l3*np.abs(lat**3)
                 thetas.append(newtheta)
@@ -112,10 +112,12 @@ def fit(data, **kwargs):
 
     with mdl_fish:
         # result = pm.find_MAP()
-        result_pos = pm.sample(1000, tune=200, cores=4, return_inferencedata=True, target_accept=0.95)
-        result_map = pm.find_MAP()
+        import pymc.sampling_jax
+        result_pos = pm.sampling_jax.sample_numpyro_nuts(1000, tune=1000, chains=20)
+        #result_pos = pm.sample(1000, tune=200, cores=4, return_inferencedata=True, target_accept=0.95)
+        result_map = pm.find_MAP(method='Powell')
 
-    return {'posterior': result_pos, 'map': result_map, 'area_normalizer': area_normalizer}
+    return {'posterior': result_pos, 'map': result_map}
 
 
 def fit_nonparam(data, **kwargs):
@@ -127,8 +129,8 @@ def fit_nonparam(data, **kwargs):
     duration = data['duration'].values
     # non_shower_cols = ['lat', 'fov_dist', 'flash_dens', 'area', 'count', 'land', 'duration']
     # showers = [col for col in data.columns if col not in non_shower_cols]
-    plt.hist(count)
-    plt.show()
+    #plt.hist(count)
+    #plt.show()
 
     with pm.Model() as mdl_fish:
 
@@ -171,9 +173,9 @@ def get_polygons(fov, lon, transform=True, plot=True, n_points=1000):
 
     polygons = random_partition(fov, n_points=n_points, iterations=5)
     gdf = GeoDataFrame(geometry=polygons, crs=geo)
-    if plot:
-        gdf.plot()
-        plt.show()
+    #if plot:
+    #    gdf.plot()
+    #    plt.show()
     if transform:
         gdf = gdf.to_crs(cea)
     polygons = gdf.geometry
@@ -185,7 +187,8 @@ def discretize(bdf, fov=None, lon=None, showers=[], return_poly=False, n_points=
 
     cea = pyproj.Proj(proj='cea', ellps='WGS84', datum='WGS84', lon_0=lon).srs
     polygons = get_polygons(fov, lon, transform=True, n_points=n_points)
-    areas = [poly.area for poly in polygons]
+    areas = get_areas(polygons, cea)
+    # areas = [poly.area for poly in polygons]
 
     print(f'{len(polygons)} polygons made')
 
@@ -212,12 +215,12 @@ def discretize(bdf, fov=None, lon=None, showers=[], return_poly=False, n_points=
 
     durations = np.array(durations).astype(float)
     counts = np.array(counts)
-    plt.hist(counts[:len(polygons)])
-    plt.show()
-    plt.hist(counts[len(polygons):(2*len(polygons))])
-    plt.show()
+    #plt.hist(counts[:len(polygons)])
+    #plt.show()
+    #plt.hist(counts[len(polygons):(2*len(polygons))])
+    #plt.show()
 
-    print(shower_data_dict)
+    # print(shower_data_dict)
 
     areas = areas*(len(showers)+1)  # repeat areas
     polygons = list(polygons)*(len(showers)+1)  # repeat polygons
@@ -259,11 +262,14 @@ def full_model(g16=None, g17=None, separate=False, nonparam=False, n_points=1000
     fit_func = fit_nonparam if nonparam else fit
 
     datas = []
+    sats = ['g16', 'g17']
     for num, bdf in enumerate([g16, g17]):
         fov = [goes_e_fov, goes_w_fov][num]
         fov_center = [goes_e, goes_w][num]
         gdf = discretize(bdf, fov=fov, lon=fov_center[1], n_points=n_points, showers=showers)
-        datas.append(get_data(gdf, fov_center=fov_center))
+        data = get_data(gdf, fov_center=fov_center)
+        data['sat'] = sats[num]
+        datas.append(data)
     if not separate:
         datas = [d.to_crs(datas[0].crs) for d in datas]
         data = GeoDataFrame(pd.concat(datas, ignore_index=True), crs=datas[0].crs)
