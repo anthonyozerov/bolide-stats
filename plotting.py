@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+import pandas as pd
 import numpy as np
 import random
 import cartopy.crs as ccrs
@@ -44,7 +45,7 @@ def plot_lat_result(result, title, filename, max_lat=55, normalize=True, symmetr
     m_ap = result['map']
     top_y = 0
     y_plots = np.zeros((400, 200//(int(symmetric)+1)))
-    for i in range(400+1):
+    for i in range(400):
         x_plot = np.linspace(-max_lat, max_lat, 200)/90
         chain = random.randint(0, len(pos.chain)-1)
         draw = random.randint(0, len(pos.draw)-1)
@@ -58,7 +59,7 @@ def plot_lat_result(result, title, filename, max_lat=55, normalize=True, symmetr
             l1 = pos.__getattr__(shower+"lat1")[chain][draw].data
             l2 = pos.__getattr__(shower+"lat2")[chain][draw].data
             l3 = pos.__getattr__(shower+"lat3")[chain][draw].data
-        else:
+        '''else:
             color = 'red'
             alpha = 1
             linewidth = 1
@@ -67,7 +68,7 @@ def plot_lat_result(result, title, filename, max_lat=55, normalize=True, symmetr
             intercept = m_ap['intercept']
             l1 = m_ap[shower+"lat1"]
             l2 = m_ap[shower+"lat2"]
-            l3 = m_ap[shower+"lat3"]
+            l3 = m_ap[shower+"lat3"]'''
 
         if normalize:
             y_plot = [np.exp(l1*x + l2*x**2 + l3*np.abs(x**3)) for x in x_plot]
@@ -109,34 +110,36 @@ def plot_lat_result(result, title, filename, max_lat=55, normalize=True, symmetr
         plt.xlim(0, 55)
     else:
         plt.xlim(-55, 55)
-    if shower == 'LEO':
-        shower = 'Leonid'
 
     if theory is not None:
+        Y = [c for c in theory.columns if c != 'lat']
         if symmetric:
             nrows = theory.shape[0]
             midpoint = int(nrows/2)
-            x_plot = theory[midpoint:, 0]
-            theory = theory[midpoint:, :]+np.flipud(theory)[midpoint:, :]
-            theory /= 2
+            x_plot = theory['lat'][midpoint:]
+            theory_sym = pd.DataFrame(columns=theory.columns)
+            theory_sym['lat'] = x_plot
+            theory_sym[Y] = np.array(theory[Y][midpoint:])+np.flipud(np.array(theory[Y][:midpoint]))
+            theory_sym[Y] /= 2
+            theory = theory_sym
         else:
-            x_plot = theory[:, 0]
+            x_plot = theory['lat']
         if theory.shape[1] == 2:
-            plt.plot(x_plot, theory[:, 1], label='Theoretical')
+            plt.plot(x_plot, theory.iloc[:, 1], label='Theoretical')
         elif theory.shape[1] == 6:
-            for i, vel in enumerate([50, 55, 60, 65, 68]):
-                plt.plot(x_plot, theory[:, i+1], label=f'Theoretical, {vel}km/s radiant')
+            for vel in Y:
+                plt.plot(x_plot, theory[vel], label=f'Theoretical, {vel}km/s radiant')
 
-    plt.title(shower+' '+title)
+    plt.title(title)
     handles, labels = plt.gca().get_legend_handles_labels()
     line = Line2D([0], [0], label='Posterior bolide rate samples', color='black')
     line2 = Line2D([0], [0], label='Central 80\% of distribution', color='red', linestyle='--')
-    line3 = Line2D([0], [0], label='MAP', color='red', linestyle='-')
-    handles.extend([line, line2, line3])
+    #  line3 = Line2D([0], [0], label='MAP', color='red', linestyle='-')
+    handles.extend([line, line2])#, line3])
     plt.legend(handles=handles, frameon=False)
     plt.gcf().set_size_inches((4, 3))
-    plt.savefig(f'plots/{filename}.png', dpi=300, bbox_inches='tight')
-    plt.savefig(f'plots/{filename}.pgf', bbox_inches='tight')
+    # plt.savefig(f'plots/{filename}.png', dpi=300, bbox_inches='tight')
+    # plt.savefig(f'plots/{filename}.pgf', bbox_inches='tight')
     plt.savefig(f'plots/{filename}.pdf', bbox_inches='tight')
     plt.close()
 
@@ -154,7 +157,7 @@ def plot_fov_result(result, title, filename, normalize=False, angle=False, truth
     m_ap = result['map']
     top_y = 0
     y_plots = np.zeros((400, 200))
-    for i in range(400+1):
+    for i in range(400):
         chain = random.randint(0, len(pos.chain)-1)
         draw = random.randint(0, len(pos.draw)-1)
 
@@ -168,7 +171,7 @@ def plot_fov_result(result, title, filename, normalize=False, angle=False, truth
             fov2 = pos.fov_dist2[chain][draw].data
             fov3 = pos.fov_dist3[chain][draw].data
 
-        else:
+        '''else:
             color = 'red'
             alpha = 1
             linewidth = 1
@@ -177,7 +180,7 @@ def plot_fov_result(result, title, filename, normalize=False, angle=False, truth
             intercept = m_ap['intercept']
             fov1 = m_ap["fov_dist"]
             fov2 = m_ap["fov_dist2"]
-            fov3 = m_ap["fov_dist3"]
+            fov3 = m_ap["fov_dist3"]'''
 
         x_plot = np.linspace(0, 7300, 200)/10000
         # x_plot = np.linspace(0,9,200)/10
@@ -224,12 +227,12 @@ def plot_fov_result(result, title, filename, normalize=False, angle=False, truth
     handles, labels = plt.gca().get_legend_handles_labels()
     line = Line2D([0], [0], label='Posterior bolide rate samples', color='black')
     line2 = Line2D([0], [0], label='Central 80\% of distribution', color='red', linestyle='--')
-    line3 = Line2D([0], [0], label='MAP', color='red', linestyle='-')
-    handles.extend([line, line2, line3])
+    #  line3 = Line2D([0], [0], label='MAP', color='red', linestyle='-')
+    handles.extend([line, line2])#, line3])
     plt.legend(handles=handles, frameon=False)
     plt.gcf().set_size_inches((8, 3))
-    plt.savefig(f'plots/{filename}.png', dpi=300, bbox_inches='tight')
-    plt.savefig(f'plots/{filename}.pgf', bbox_inches='tight')
+    # plt.savefig(f'plots/{filename}.png', dpi=300, bbox_inches='tight')
+    # plt.savefig(f'plots/{filename}.pgf', bbox_inches='tight')
     plt.savefig(f'plots/{filename}.pdf', bbox_inches='tight')
     plt.close()
 

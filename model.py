@@ -19,7 +19,7 @@ from geo_utils import get_pitch, get_flash_density, get_areas
 from partition import random_partition
 
 
-def get_data(gdf, fov_center=None, mapping=None):
+def get_data(gdf, fov_center=None, mapping=None, ecliptic=False):
     centroids = [list(poly.centroid.xy) for poly in gdf.geometry]
     xs = [c[0][0] for c in centroids]
     ys = [c[1][0] for c in centroids]
@@ -48,6 +48,20 @@ def get_data(gdf, fov_center=None, mapping=None):
 
     # normalize so that 1 is the maximum value
     flash_dens /= max(flash_dens)  # todo: should this scaling really be different for the two satellites?
+
+    if ecliptic:
+        #TODO: this won't work. Different points in same polygon hit at different ecliptic latitudes
+        print('transforming coords to ecliptic')
+        from astropy.coordinates import ICRS, SkyCoord
+        from astropy.time import Time
+        import astropy.units as u
+        eclipticlats = []
+        rows = zip(lats, lons, gdf['datetime'])
+        for lat, lon, time in rows:
+            c = SkyCoord(ra=lon*u.degree, dec=lat*u.degree, obstime=Time(time), frame='itrs')
+            icrs = c.transform_to(ICRS)
+            eclipticlats.append(icrs.barycentrictrueecliptic.lat.value)
+        lats = np.array(eclipticlats)
 
     lats /= 90
 
@@ -113,9 +127,9 @@ def fit(data, **kwargs):
     with mdl_fish:
         # result = pm.find_MAP()
         import pymc.sampling_jax
-        result_pos = pm.sampling_jax.sample_numpyro_nuts(1000, tune=1000, chains=20)
-        #result_pos = pm.sample(1000, tune=200, cores=4, return_inferencedata=True, target_accept=0.95)
-        result_map = pm.find_MAP(method='Powell')
+        result_pos = pm.sampling_jax.sample_numpyro_nuts(1000, tune=200, chains=1)
+        #result_pos = pm.sample(100, tune=200, cores=4, return_inferencedata=True, target_accept=0.95)
+        result_map = pm.find_MAP(method='L-BFGS-B')
 
     return {'posterior': result_pos, 'map': result_map}
 
@@ -254,7 +268,7 @@ def discretize(bdf, fov=None, lon=None, showers=[], return_poly=False, n_points=
     return gdf
 
 
-def full_model(g16=None, g17=None, separate=False, nonparam=False, n_points=1000, showers=[]):
+def full_model(g16=None, g17=None, separate=False, nonparam=False, n_points=1000, showers=[], ecliptic=False):
     goes_e_fov = get_boundary('goes-e')
     goes_w_fov = get_boundary('goes-w')
     from bolides.constants import GOES_E_LON, GOES_W_LON
@@ -269,7 +283,7 @@ def full_model(g16=None, g17=None, separate=False, nonparam=False, n_points=1000
         fov = [goes_e_fov, goes_w_fov][num]
         fov_center = [goes_e, goes_w][num]
         gdf = discretize(bdf, fov=fov, lon=fov_center[1], n_points=n_points, showers=showers)
-        data = get_data(gdf, fov_center=fov_center)
+        data = get_data(gdf, fov_center=fov_center, ecliptic=ecliptic)
         data['sat'] = sats[num]
         datas.append(data)
     if not separate:
