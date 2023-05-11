@@ -17,7 +17,7 @@ def get_areas(polygons, crs):
         lat = centroid.y
         laea = pyproj.Proj(proj='laea', lat_0=lat, lon_0=lon).srs
         area = GeoDataFrame(geometry=[poly], crs=crs).to_crs(laea).geometry[0].area
-        area /= 510072000 * 1e6 # divide by Earth's area
+        area /= (510072000 * 1e6) # divide by Earth's area
         areas.append(area)
 
     return areas

@@ -1,3 +1,5 @@
+import numpy as np
+import matplotlib.pyplot as plt
 from math import sqrt, pi
 import random
 from shapely import affinity
@@ -13,23 +15,36 @@ def random_partition(polygon, n_points, iterations, cover=False):
 
     min_x = min([p.x for p in points])
     min_y = min([p.y for p in points])
+    max_x = max([p.x for p in points])
+    max_y = max([p.y for p in points])
 
-    coords = list(zip([p.x-min_x for p in points], [p.y-min_y for p in points]))
-    shape = affinity.translate(polygon, -min_x, -min_y)
+    coords = list(zip([p.x-min_x*2 for p in points], [p.y-min_y*2 for p in points]))
+    shape = affinity.translate(polygon, -min_x*2, -min_y*2)
+    new_x = list(np.zeros(10))+list(np.zeros(10)-min_x*2+max_x*2)+list(np.linspace(0,-min_x*2+max_x*2,10))*2
+    new_y = list(np.linspace(0,-min_y*2+max_y*2,10))*2+list(np.zeros(10))+list(np.zeros(10)-min_y*2+max_y*2)
+    coords += list(zip(new_x, new_y))
+    #plt.scatter([c[0] for c in coords], [c[1] for c in coords])
+    #plt.show()
 
-    for i in range(5):
+    for i in range(20):
         vor = Voronoi(coords)
+        #lines = [LineString(vor.vertices[line]) for line in vor.ridge_vertices]
         lines = [LineString(vor.vertices[line]) for line in vor.ridge_vertices if -1 not in line]
         polygons = list(polygonize(lines))
         polygons = [poly.intersection(shape) for poly in polygons]
         good_polygons = []
         for poly in polygons:
             if poly.area > 0:
-                good_polygons.append(poly)
+                good_polygons.append(poly.buffer(0))
         polygons = good_polygons
-        points = [poly.centroid for poly in polygons]
 
-    polygons = [affinity.translate(poly, min_x, min_y) for poly in polygons]
+        covered = unary_union(polygons)
+
+        points = [poly.centroid for poly in polygons]
+        coords = list(zip([p.x for p in points], [p.y for p in points]))
+        coords += list(zip(new_x, new_y))
+
+    polygons = [affinity.translate(poly, min_x*2, min_y*2) for poly in polygons]
 
     if cover:
         covered = unary_union(polygons)
