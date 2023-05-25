@@ -40,12 +40,22 @@ run_model('l12f123', g16=g16, g17=g17, nonparam=False, n_points=1000, f_lat='x^1
 run_model('l124f12', g16=g16, g17=g17, nonparam=False, n_points=1000, f_lat='x^1+x^2+x^4', f_fov='x^1+x^2', showers=[])
 run_model('l12f12L', g16=g16, g17=g17, nonparam=False, n_points=1000, f_lat='x^1+x^2', f_fov='x^1+x^2',biases=['land'], showers=[])
 run_model('l12f12F', g16=g16, g17=g17, nonparam=False, n_points=1000, f_lat='x^1+x^2', f_fov='x^1+x^2',biases=['flash_dens'], showers=[])
+run_model('l1234f1234', g16=g16, g17=g17, nonparam=False, n_points=1000, f_lat='x^1+x^2+x^3+x^4', f_fov='x^1+x^2+x^3+x^4', showers=[])
+run_model('l123456f123456', g16=g16, g17=g17, nonparam=False, n_points=1000, f_lat='x^1+x^2+x^3+x^4+x^5+x^6', f_fov='x^1+x^2+x^3+x^4+x^5+x^6', showers=[])
 
 for conf in [0.25, 0.5, 0.7, 0.8, 0.9]:
     bdf_subset = bdf[bdf.confidence >= conf]
     g16 = bdf_subset[bdf_subset.detectedBy == 'G16']
     g17 = bdf_subset[bdf_subset.detectedBy == 'G17']
     run_model(f'param-leo-{conf}', g16=g16, g17=g17, nonparam=False, n_points=1000, showers=['LEO'])
+
+print('loading web data')
+bdf_web = BolideDataFrame(source='csv', files='data/web.csv', annotate=False)
+bdf_web = bdf_web[(bdf_web.datetime>min(bdf.datetime)) & (bdf_web.datetime<max(bdf.datetime))]
+g16 = bdf_web[bdf_web.detectedBy.str.contains('GLM-16')]
+g17 = bdf_web[bdf_web.detectedBy.str.contains('GLM-17')]
+run_model('human-l123456f123456', g16=g16, g17=g17, nonparam=False, n_points=1000, f_lat='x^1+x^2+x^3+x^4+x^5+x^6', f_fov='x^1+x^2+x^3+x^4+x^5+x^6', showers=[], biases=['stereo'])
+
 
 # run_model('param-leo-ecliptic', g16=g16, g17=g17, nonparam=False, n_points=1000, showers=['LEO'], ecliptic=True)
 # run_model('nonparam', g16=g16, g17=g17, nonparam=True, n_points=100, showers=[])

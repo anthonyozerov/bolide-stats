@@ -94,7 +94,7 @@ def get_varfactor(f, var, x, shower='', m_ap=None, pos=None, chain=None, draw=No
     return varfactor
 
 
-def plot_lat_result(result, title, filename, plot_map=True, max_lat=55, normalize=True, symmetric=False, shower='', theory=None, show=False):
+def plot_lat_result(result, title, filename=None, plot_map=True, max_lat=55, normalize=True, symmetric=False, shower='', theory=None, show=False):
     plt.style.use('default')
     plt.rcParams['text.usetex'] = True
     plt.rcParams['xtick.direction'] = 'in'
@@ -139,28 +139,30 @@ def plot_lat_result(result, title, filename, plot_map=True, max_lat=55, normaliz
         y_plot = np.array(y_plot)
         if symmetric:
             midpoint = int(len(x_plot)/2)
-            x_plot = x_plot[midpoint:]
             y_plot = (y_plot[midpoint:] + np.flipud(y_plot[:midpoint]))/2
+        else:
+            midpoint = 0
         top_y = max(max(y_plot), top_y)
         if i != 400:
             y_plots[i, :] = y_plot
         if not (i==400 and not plot_map):
-            ax1.plot(x_plot*90, y_plot, color=color, alpha=alpha, linewidth=linewidth)
+            ax1.plot(x_plot[midpoint:]*90, y_plot, color=color, alpha=alpha, linewidth=linewidth)
 
     # plot quantiles
     top_quantile = np.quantile(y_plots, 0.90, axis=0)
     bottom_quantile = np.quantile(y_plots, 0.10, axis=0)
     median = np.quantile(y_plots, 0.5, axis=0)
-    plt.plot(x_plot*90, top_quantile, color='red', linewidth=1, linestyle='--')
-    plt.plot(x_plot*90, bottom_quantile, color='red', linewidth=1, linestyle='--')
-    plt.plot(x_plot*90, median, color='red', linewidth=1, linestyle='-')
+    plt.plot(x_plot[midpoint:]*90, top_quantile, color='red', linewidth=1, linestyle='--')
+    plt.plot(x_plot[midpoint:]*90, bottom_quantile, color='red', linewidth=1, linestyle='--')
+    plt.plot(x_plot[midpoint:]*90, median, color='red', linewidth=1, linestyle='-')
 
     plt.xlabel('Latitude (°)')
     plt.ylabel('Normalized bolide flux')
-    try:
-        plt.ylim(0, top_y)
-    except ValueError:
-        print('bad input--did it converge?')
+    # try:
+    #     plt.ylim(0, top_y)
+    # except ValueError:
+    #     print('bad input--did it converge?')
+    plt.ylim(0, max(top_quantile)*1.1)
     if symmetric:
         plt.xlim(0, 55)
     else:
@@ -200,13 +202,14 @@ def plot_lat_result(result, title, filename, plot_map=True, max_lat=55, normaliz
     plt.gcf().set_size_inches((4, 3))
     # plt.savefig(f'plots/{filename}.png', dpi=300, bbox_inches='tight')
     # plt.savefig(f'plots/{filename}.pgf', bbox_inches='tight')
-    plt.savefig(f'plots/{filename}.pdf', bbox_inches='tight')
+    if filename is not None:
+        plt.savefig(f'plots/{filename}.pdf', bbox_inches='tight')
     if show:
         plt.show()
     plt.close()
 
 
-def plot_fov_result(result, title, filename, plot_map=True, normalize=False, angle=False, truth=None, show=False):
+def plot_fov_result(result, title, filename=None, plot_map=True, normalize=False, angle=False, truth=None, show=False):
     plt.style.use('default')
     plt.rcParams['text.usetex'] = True
     plt.rcParams['xtick.direction'] = 'in'
@@ -297,7 +300,8 @@ def plot_fov_result(result, title, filename, plot_map=True, normalize=False, ang
         handles.extend([line, line2, line3])
     plt.legend(handles=handles, frameon=False)
     plt.gcf().set_size_inches((4, 3))
-    plt.savefig(f'plots/{filename}.pdf', bbox_inches='tight')
+    if filename is not None:
+        plt.savefig(f'plots/{filename}.pdf', bbox_inches='tight')
     if show:
         plt.show()
     plt.close()
