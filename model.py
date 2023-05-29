@@ -39,7 +39,6 @@ def get_data(gdf, fov_center=None, mapping=None, ecliptic=False):
     coords = list(zip(lats, lons))
     if fov_center is not None:
         fov_dists = np.array(haversine_vector([fov_center]*len(coords), coords))
-        fov_dists /= 10000
 
     # get the pixel pitches of the pixels on the CCD corresponding to the centroids
     if mapping is not None:
@@ -58,25 +57,14 @@ def get_data(gdf, fov_center=None, mapping=None, ecliptic=False):
     land = np.array([globe.is_land(lat, lon) for lat, lon in zip(lats, lons)])
     land = land.astype(int)
 
-    # normalize so that 1 is the maximum value
-    #flash_dens /= max(flash_dens)  # todo: should this scaling really be different for the two satellites?
+    if shower_data is not None:
+        for s, filename in shower_data.items():
+            print(f'loading {filename}')
+            shower_rate = np.array(pd.read_csv(filename))
+            shower_lats = shower_rate['lat']
+            rates = shower_rate['dens']
 
-    if ecliptic:
-        #TODO: this won't work. Different points in same polygon hit at different ecliptic latitudes
-        print('transforming coords to ecliptic')
-        from astropy.coordinates import ICRS, SkyCoord
-        from astropy.time import Time
-        import astropy.units as u
-        eclipticlats = []
-        rows = zip(lats, lons, gdf['datetime'])
-        for lat, lon, time in rows:
-            c = SkyCoord(ra=lon*u.degree, dec=lat*u.degree, obstime=Time(time), frame='itrs')
-            icrs = c.transform_to(ICRS)
-            eclipticlats.append(icrs.barycentrictrueecliptic.lat.value)
-        lats = np.array(eclipticlats)
-
-    # normalize to [0,1]
-    lats /= 90
+            gdf[s+'rate'] = gdf[s]*np.interp(lats, shower_lats, rates)
 
     # add new columns to the dataframe
     gdf['lat'] = lats
@@ -85,10 +73,12 @@ def get_data(gdf, fov_center=None, mapping=None, ecliptic=False):
     gdf['flash_dens'] = flash_dens
     gdf['land'] = land
 
+    print(f'created dataframe with columns {list(gdf.columns)}')
+
     return gdf
 
 # given dataset, fit the model
-def fit(data, f_lat, f_fov, biases, **kwargs):
+def fit(data, f_lat, f_fov, biases, showers, shower_known=False, **kwargs):
     # extract variables from the data
     lat = np.array(data['lat'])
     fov = np.array(data['fov_dist'])
@@ -97,11 +87,8 @@ def fit(data, f_lat, f_fov, biases, **kwargs):
     area = area/max_area
     count = np.array(data['count'])
     duration = np.array(data['duration'])
-    non_shower_cols = ['lat', 'lon', 'fov_dist', 'flash_dens', 'area', 'count', 'land', 'duration', 'geometry', 'sat', 'stereo']
-    showers = [col for col in data.columns if col not in non_shower_cols]
 
-    # define model
-
+    # create data matrix
     X = pd.DataFrame()
     for bias in biases:
         bdata = np.array(data[bias]).astype(float)
@@ -114,7 +101,7 @@ def fit(data, f_lat, f_fov, biases, **kwargs):
         power = int(term.split('^')[1])
         latpower = lat**power
         X[f'lat{power}'] = latpower
-    if len(showers) > 0:
+    if not shower_known:
         for s in showers:
             indicator = np.array(data[s])
             for term in f_lat.split('+'):
@@ -130,6 +117,7 @@ def fit(data, f_lat, f_fov, biases, **kwargs):
     X -= mean
     X /= scale
 
+    # define model
     with pm.Model(coords={"predictors": X.columns.values}) as model:
         # https://www.pymc.io/projects/docs/en/stable/learn/core_notebooks/pymc_overview.html
         import aesara.tensor as tt
@@ -150,7 +138,6 @@ def fit(data, f_lat, f_fov, biases, **kwargs):
         beta = pm.Deterministic(
             "beta", z * tau * lam * tt.sqrt(c2 / (c2 + tau**2 * lam**2)), dims="predictors"
         )
-        # wide intercept
 
         n1 = len(biases)+len(f_fov.split('+'))
         bias_term = np.exp(tt.dot(X.values[:,:n1], beta[:n1]))
@@ -158,46 +145,25 @@ def fit(data, f_lat, f_fov, biases, **kwargs):
         ni = n1
         step = len(f_fov.split('+'))
 
-        for i in range(len(showers)+1):
-            intercept = pm.Cauchy(f"{(['']+showers)[i]}intercept", alpha=0, beta=0.5)
-            if i>0:
-                intercept *= np.array(data[showers[i-1]])
-            total_rate += np.exp(intercept + tt.dot(X.values[:,ni:(ni+step)], beta[ni:(ni+step)]))
-            ni+=step
+        if shower_known:
+            print('shower rates are known')
+            intercept = pm.Cauchy(f"{s}intercept", alpha=0, beta=0.5)
+            shower_rate = 0
+            for s in showers:
+                s_intercept = pm.HalfCauchy(f"{s}intercept", alpha=0, beta=0.5)
+                shower_rate += s_intercept*np.array(data[f'{s}rate'])
+            total_rate = np.exp(intercept + tt.dot(X.values, beta)) + shower_rate
+        else:
+            total_rate = 0
+            for i in range(len(showers)+1):
+                s = (['']+showers)[i]
+                intercept = pm.Cauchy(f"{s}intercept", alpha=0, beta=0.5)
+                if i>0:
+                    intercept *= np.array(data[showers[i-1]])
+                total_rate += np.exp(intercept + tt.dot(X.values[:,ni:(ni+step)], beta[ni:(ni+step)]))
+                ni+=step
 
         Lambda = bias_term * total_rate
-        #Lambda = np.exp(beta0 + tt.dot(X.values, beta))
-
-        if False:
-            var_names = []
-
-            fov_term = 0
-            if len(f_fov)>0:
-                for term in f_fov.split('+'):
-                    power = int(term.split('^')[1])
-                    fovpower = fov**power
-                    fov_term += pm.Normal(f'fov{power}', 0, 1/np.var(fovpower))*fovpower
-                    var_names.append(f'fov{power}')
-                    print(f'added fov^{power} term')
-
-            lat_term = 0
-            if len(f_lat)>0:
-                for term in f_lat.split('+'):
-                    power = int(term.split('^')[1])
-                    latpower = lat**power
-                    lat_term += pm.Normal(f'lat{power}', 0, 1/np.var(latpower))*latpower
-                    var_names.append(f'lat{power}')
-                    print(f'added lat^{power} term')
-
-            #intercept = pm.Normal("intercept", 0, 10)
-            intercept = pm.Cauchy("intercept", alpha=0, beta=0.5)
-
-            bias_term = 0
-            for bias in biases:
-                bdata = np.array(data[bias]).astype(float)
-                bias_term += pm.Normal(bias, 0, 1/np.nanvar(bdata))*bdata
-                var_names.append(bias)
-                print(f'added {bias} term')
 
         # Define Poisson likelihood
         print('creating y')
@@ -284,7 +250,7 @@ def discretize(bdf, fov=None, lon=None, showers=[], return_poly=False, n_points=
         sdf.__class__ = ShowerDataFrame
         # sdf = ShowerDataFrame(source='csv', file='data/showers.csv')
         sdf = sdf[sdf.References.str.contains('2016, Icarus, 266')]
-        bdfs = [bdf_cea.filter_shower(shower=showers, exclude=True, padding=10, sdf=sdf)]
+        bdfs = [bdf_cea.filter_shower(shower=showers, exclude=True, padding=5, sdf=sdf)]
         bdfs += [bdf_cea.filter_shower(shower=s, padding=10, sdf=sdf) for s in showers]
         is_shower = np.zeros((len(polygons)*(len(showers)+1), len(showers)))
         durations = [(365.25-(10*len(showers)))/365.25]*len(polygons)
@@ -349,7 +315,8 @@ def discretize(bdf, fov=None, lon=None, showers=[], return_poly=False, n_points=
 
 # define the full model
 def full_model(g16=None, g17=None, separate=False, n_points=1000,
-               f_lat='', f_fov='', biases=[], showers=[], ecliptic=False):
+               f_lat='', f_fov='', biases=[], showers=[], 
+               shower_data=None):
     # get the fields of view for GOES E and GOES W
     goes_e_fov = get_boundary('goes-e')
     goes_w_fov = get_boundary('goes-w')
@@ -368,19 +335,19 @@ def full_model(g16=None, g17=None, separate=False, n_points=1000,
         fov = [goes_e_fov, goes_w_fov][num]
         fov_center = [goes_e, goes_w][num]
         gdf = discretize(bdf, fov=fov, lon=fov_center[1], n_points=n_points, showers=showers)
-        data = get_data(gdf, fov_center=fov_center, ecliptic=ecliptic)
+        data = get_data(gdf, fov_center=fov_center, ecliptic=ecliptic, shower_data=shower_data)
         data['sat'] = sats[num]
         datas.append(data)
     #    with open('models/data.pkl','wb') as f:
     #        pickle.dump(datas, f)
     #with open('models/data.pkl','rb') as f:
     #    datas = pickle.load(f)
-
+    shower_known = (shower_data is not None)
     if not separate:
         # if not fitting separately, put the data for the two satellites together and fit
         datas = [d.to_crs(datas[0].crs) for d in datas]
         data = GeoDataFrame(pd.concat(datas, ignore_index=True), crs=datas[0].crs)
-        result = fit(data, f_lat, f_fov, biases)
+        result = fit(data, f_lat, f_fov, biases, showers, shower_known)
         return dict(results=[result], data=data, f_lat=f_lat, f_fov=f_fov, biases=biases)
     # otherwise, do the fits separately
     else:
