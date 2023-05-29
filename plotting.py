@@ -17,9 +17,9 @@ from bolides.constants import GLM_STEREO_MIDPOINT, GOES_E_LON
 import bolides.crs as bcrs
 
 
-def plot_polygons(gdf, filename=None, column='area', label='Polygon area (km$^{-2}$)', 
-                  crs=ccrs.EckertIV(central_longitude=GLM_STEREO_MIDPOINT), insetcrs=bcrs.GOES_E(),
-                  show=False):
+def plot_polygons(gdf, data, filename=None, label='Polygon area (km$^{-2}$)', 
+                  crs=ccrs.EckertIV(central_longitude=GLM_STEREO_MIDPOINT), second='insert',
+                  crs2=bcrs.GOES_E(), show=False, figsize=(10,4), extent=None):
 
     plt.style.use('default')
     plt.rcParams['text.usetex'] = True
@@ -28,13 +28,16 @@ def plot_polygons(gdf, filename=None, column='area', label='Polygon area (km$^{-
 
     crs_proj4 = crs.proj4_init
     gdf = gdf.to_crs(crs_proj4)
-    fig, ax = plt.subplots(subplot_kw={'projection': crs}, figsize=(10,4))
+    if second=='side':
+        fig = plt.figure(figsize=figsize)
+        ax = fig.add_subplot(1,2,1, projection=crs)
+        ax2 = fig.add_subplot(1,2,2, projection=crs2)
+        plt.tight_layout()
+    else:
+        fig, ax = plt.subplots(subplot_kw={'projection': crs}, figsize=figsize)
     ax.stock_img()
     cmap = plt.get_cmap('viridis')
-    if column == 'density':
-        data = gdf['count']/gdf['area']
-    else:
-        data = gdf[column]
+
     cNorm = Normalize(vmin=np.nanmin(data), vmax=np.nanmax(data))
     scalarMap = cmx.ScalarMappable(norm=cNorm, cmap=cmap)
     colors = [scalarMap.to_rgba(num) for num in data]
@@ -45,43 +48,75 @@ def plot_polygons(gdf, filename=None, column='area', label='Polygon area (km$^{-
     points = GeoDataFrame(geometry=points, crs='epsg:4326').to_crs(crs.proj4_init).geometry
     x = np.array([p.x for p in points])
     y = np.array([p.y for p in points])
-    plt.scatter(x, y, color='red', marker='.', s=4, zorder=5, edgecolor='none')
-    plt.colorbar(scalarMap, label=label)
+    ax.scatter(x, y, color='red', marker='.', s=4, zorder=5, edgecolor='none')
 
-    from mpl_toolkits.axes_grid1.inset_locator import inset_axes
-    import cartopy
-    axins = inset_axes(ax, width="100%", height="100%", loc='lower left',
-                       bbox_to_anchor=(0.5, -0.05, 0.75, 0.6),
-                       bbox_transform=ax.transAxes,
-                       axes_class=cartopy.mpl.geoaxes.GeoAxes,
-                       axes_kwargs=dict(map_projection=insetcrs))
-    axins.stock_img()
-    for num, poly in enumerate(gdf.geometry):
-        axins.add_geometries([poly], crs=crs, color=colors[num], linewidth=0)
-    points = [Point(lon, lat) for lon, lat in zip(gdf['lon'], gdf['lat']*90)]
-    points = GeoDataFrame(geometry=points, crs='epsg:4326').to_crs(insetcrs.proj4_init).geometry
-    x = np.array([p.x for p in points])
-    y = np.array([p.y for p in points])
-    plt.scatter(x, y, color='red', marker='.', s=3, zorder=5, edgecolor='none')
-    axins.coastlines()
-    axins.gridlines(color='black',draw_labels=False, xlocs=[0,60,120,180,-60,-120])
+    if second=='inset':
+        from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+        import cartopy
+        ax2 = inset_axes(ax, width="100%", height="100%", loc='lower left',
+                           bbox_to_anchor=(0.5, -0.05, 0.75, 0.6),
+                           bbox_transform=ax.transAxes,
+                           axes_class=cartopy.mpl.geoaxes.GeoAxes,
+                           axes_kwargs=dict(map_projection=crs2))
+    if second=='side':
+        plt.colorbar(scalarMap, label=label,ax=[ax,ax2])
+    else:
+        plt.colorbar(scalarMap, label=label)
+    if second is not None:
+        ax2.stock_img()
+        for num, poly in enumerate(gdf.geometry):
+            ax2.add_geometries([poly], crs=crs, color=colors[num], linewidth=0)
+        points = [Point(lon, lat) for lon, lat in zip(gdf['lon'], gdf['lat']*90)]
+        points = GeoDataFrame(geometry=points, crs='epsg:4326').to_crs(crs2.proj4_init).geometry
+        x = np.array([p.x for p in points])
+        y = np.array([p.y for p in points])
+        plt.scatter(x, y, color='red', marker='.', s=3, zorder=5, edgecolor='none')
+        ax2.coastlines()
+        ax2.gridlines(color='black',draw_labels=False, xlocs=[0,60,120,180,-60,-120])
 
     ax.coastlines()
-    ax.gridlines(color='black',draw_labels=True)
+    ax.gridlines(color='black',draw_labels=(second!='side'))
+
+    if extent is not None:
+        ax.set_extent(extent, ccrs.PlateCarree())
 
     if filename is not None:
-        plt.savefig(f'data-plots/{filename}-{column}.pdf', bbox_inches='tight')
+        plt.savefig(f'data-plots/{filename}.pdf', bbox_inches='tight')
     if show:
         plt.show()
     # gdf.plot(column)
     # plt.show()
 
 
-def get_varfactor(f, var, x, shower='', m_ap=None, pos=None, chain=None, draw=None):
+def reformat_result(result):
+    import copy
+    r = result['results'][0]
+    pos = r['idata'].posterior
+    pos2 = {}
+    for key in pos.keys():
+        pos2[key]=pos[key]
+    adjust = r['adjust']
+    for i, var in enumerate(pos.beta.predictors):
+        varname = str(np.array(var))
+        pos2[varname] = pos.beta[:,:,i]#/adjust['scale'][varname]
+        #for s in showers+['']:
+        #    if s in varname:
+        #        pos2[f'{s}intercept'] -= adjust['mean'][varname]*pos.beta[:,:,i]/adjust['scale'][varname]
+        #    break
+
+    pos2['chain'] = pos.chain
+    pos2['draw'] = pos.draw
+    result2 = copy.deepcopy(result)
+    result2['results'][0]['idata'] = {'posterior':pos2}
+    return result2
+
+
+def get_varfactor(f, var, x, shower='', adjust=None, m_ap=None, pos=None, chain=None, draw=None):
     assert m_ap is not None or pos is not None
     if pos is not None:
         assert chain is not None and draw is not None
 
+    zero = 0
     varfactor = np.zeros(len(x))
     for term in f.split('+'):
         power = int(term.split('^')[1])
@@ -90,11 +125,16 @@ def get_varfactor(f, var, x, shower='', m_ap=None, pos=None, chain=None, draw=No
         if m_ap is not None:
             varfactor += m_ap[key]
         elif pos is not None:
-            varfactor += pos[key][chain][draw].data * x**power
-    return varfactor
+            varfactor += pos[key][chain][draw].data * ((x**power)-adjust['mean'][key])/adjust['scale'][key]
+            zero -= pos[key][chain][draw].data*adjust['mean'][key]/adjust['scale'][key]
+            #varfactor += pos[f'{shower}intercept'][chain][draw].data*adjust['mean'][key]
+    return varfactor, zero
 
 
 def plot_lat_result(result, title, filename=None, plot_map=True, max_lat=55, normalize=True, symmetric=False, shower='', theory=None, show=False):
+
+    result = reformat_result(result)
+
     plt.style.use('default')
     plt.rcParams['text.usetex'] = True
     plt.rcParams['xtick.direction'] = 'in'
@@ -105,35 +145,39 @@ def plot_lat_result(result, title, filename=None, plot_map=True, max_lat=55, nor
     ax1.yaxis.set_tick_params(which='major', top='on')
 
     f_lat = result['f_lat']
-    result = result['results'][0]
-    pos = result['idata'].posterior
-    m_ap = result['map']
-    max_area = result['max_area']
+    #result = result['results'][0]
+    pos = result['results'][0]['idata']['posterior']
+    #m_ap = result['map']
+    max_area = result['results'][0]['max_area']
 
     top_y = 0
     y_plots = np.zeros((400, 200//(int(symmetric)+1)))
     x_plot = np.linspace(-max_lat, max_lat, 200)/90
     for i in range(401):
-        chain = random.randint(0, len(pos.chain)-1)
-        draw = random.randint(0, len(pos.draw)-1)
+        chain = random.randint(0, len(pos['chain'])-1)
+        draw = random.randint(0, len(pos['draw'])-1)
 
         if i != 400:
             color = 'black'
             alpha = 0.2
             linewidth = 0.5
 
-            intercept = pos.__getattr__(shower+"intercept")[chain][draw].data
-            varfactor = get_varfactor(f_lat, 'lat', x_plot, shower=shower, pos=pos, chain=chain, draw=draw)
-        else:
+            intercept = pos[f"{shower}intercept"][chain][draw].data
+            adjust = result['results'][0]['adjust']
+            varfactor, zero = get_varfactor(f_lat, 'lat', x_plot, shower, adjust, pos=pos, chain=chain, draw=draw)
+            #if shower != '':
+            #    intercept += pos[shower][chain][draw].data
+            #    varfactor += get_varfactor(f_lat, 'lat', x_plot, shower=shower, pos=pos, chain=chain, draw=draw)
+        elif plot_map:
             color = 'red'
             alpha = 1
             linewidth = 1
 
             intercept = m_ap['intercept']
-            varfactor = get_varfactor(f_lat, 'lat', x_plot, shower=shower, m_ap=m_ap)
+            varfactor, zero = get_varfactor(f_lat, 'lat', x_plot, shower=shower, m_ap=m_ap)
 
         if normalize:
-            y_plot = np.exp(varfactor)
+            y_plot = np.exp(varfactor)/np.exp(zero)
         else:
             y_plot = np.exp(intercept + varfactor)/max_area
         y_plot = np.array(y_plot)
@@ -184,7 +228,7 @@ def plot_lat_result(result, title, filename=None, plot_map=True, max_lat=55, nor
         if theory.shape[1] == 2:
             plt.plot(x_plot, theory.iloc[:, 1], label='Theoretical')
         elif theory.shape[1] == 6:
-            for vel in Y:
+            for vel in ['50','60','68']:
                 plt.plot(x_plot, theory[vel], label=f'{vel}km/s radiant')
 
     plt.title(title)
@@ -209,7 +253,9 @@ def plot_lat_result(result, title, filename=None, plot_map=True, max_lat=55, nor
     plt.close()
 
 
-def plot_fov_result(result, title, filename=None, plot_map=True, normalize=False, angle=False, truth=None, show=False):
+def plot_fov_result(result, title, filename=None, plot_map=True, normalize=False, angle=False, truth=None, show=False, figsize=(4,3)):
+    result = reformat_result(result)
+
     plt.style.use('default')
     plt.rcParams['text.usetex'] = True
     plt.rcParams['xtick.direction'] = 'in'
@@ -219,27 +265,27 @@ def plot_fov_result(result, title, filename=None, plot_map=True, normalize=False
     ax1.xaxis.set_tick_params(which='major', top='on')
 
     f_fov = result['f_lat']
-    result = result['results'][0]
-    pos = result['idata'].posterior
-    m_ap = result['map']
-    max_area = result['max_area']
+    pos = result['results'][0]['idata']['posterior']
+    m_ap = result['results'][0]['map']
+    max_area = result['results'][0]['max_area']
 
     top_y = 0
     y_plots = np.zeros((400, 200))
     for i in range(401):
         x_plot = np.linspace(0, 7300, 200)/10000
-        chain = random.randint(0, len(pos.chain)-1)
-        draw = random.randint(0, len(pos.draw)-1)
+        chain = random.randint(0, len(pos['chain'])-1)
+        draw = random.randint(0, len(pos['draw'])-1)
 
         if i != 400:
             color = 'black'
             alpha = 0.2
             linewidth = 0.5
 
-            intercept = pos.intercept[chain][draw].data
-            varfactor = get_varfactor(f_fov, 'fov', x_plot, pos=pos, chain=chain, draw=draw)
+            adjust = result['results'][0]['adjust']
+            intercept = pos['intercept']
+            varfactor, zero = get_varfactor(f_fov, 'fov', x_plot, adjust=adjust, pos=pos, chain=chain, draw=draw)
 
-        else:
+        elif plot_map:
             color = 'red'
             alpha = 1
             linewidth = 1
@@ -249,7 +295,7 @@ def plot_fov_result(result, title, filename=None, plot_map=True, normalize=False
             varfactor = get_varfactor(f_fov, 'fov', x_plot, m_ap=m_ap)
 
         if normalize:
-            y_plot = np.exp(varfactor)
+            y_plot = np.exp(varfactor)/np.exp(zero)
         else:
             y_plot = np.exp(intercept+varfactor)/max_area
 
@@ -275,10 +321,10 @@ def plot_fov_result(result, title, filename=None, plot_map=True, normalize=False
         x = truth['AOI']
         bg = truth['Background']
         raw = truth['Lightning']
-        ax2.plot(x, bg, label="Per background")
-        ax2.plot(x, raw, label="Raw signal")
+        ax2.plot(x, bg, label="Integrated GLM background brightness")
+        ax2.plot(x, raw, label="Fraction of lightning signal reaching GLM")
         ax2.set_ylim(0, 1.1*max(max(bg), max(raw)))
-        ax2.set_ylabel('Fraction of lightning signal reaching detector')
+        ax2.set_ylabel('GLM sensor data')
 
     if angle:
         ax1.set_xlabel('Angle of incident light upon sensor (°)')
@@ -286,7 +332,7 @@ def plot_fov_result(result, title, filename=None, plot_map=True, normalize=False
         ax1.set_xlabel('distance from fov nadir (km)')
     ax1.set_ylim(0, top_y)
     plt.xlim(0, max(x_plot))
-    ax1.set_ylabel('Bolide rate')
+    ax1.set_ylabel('Normalized bolide rate')
     plt.title(title)
 
     handles, labels = plt.gca().get_legend_handles_labels()
@@ -299,68 +345,9 @@ def plot_fov_result(result, title, filename=None, plot_map=True, normalize=False
     else:
         handles.extend([line, line2, line3])
     plt.legend(handles=handles, frameon=False)
-    plt.gcf().set_size_inches((4, 3))
+    plt.gcf().set_size_inches(figsize)
     if filename is not None:
         plt.savefig(f'plots/{filename}.pdf', bbox_inches='tight')
     if show:
         plt.show()
-    plt.close()
-
-
-def plot_pitch_result(result, title, filename, normalize=False):
-
-    pos = result.posterior
-    for i in range(400):
-        chain = random.randint(0, len(pos.chain)-1)
-        draw = random.randint(0, len(pos.draw)-1)
-
-        b0 = pos.Intercept[chain][draw].data
-        b8 = pos.pitch[chain][draw].data
-        b9 = pos.pitch2[chain][draw].data
-
-        x_plot = np.linspace(600, 900)/900
-        if normalize:
-            y_plot = [np.exp(b8 * x + b9 * x**2) for x in x_plot]
-        else:
-            y_plot = [np.exp(b0+b8 * x + b9 * x**2) for x in x_plot]
-        plt.plot(x_plot*900, y_plot, color='lightblue', alpha=0.05)
-
-    plt.xlabel('pixel area (microns$^2$)')
-    plt.ylabel('Bolide rate')
-    plt.title(title+' in 400 NUTS samples')
-    plt.savefig(f'plots/{filename}.png', dpi=300, bbox_inches='tight')
-    plt.close()
-
-
-def get_pixel_from_dist(dist, dist_to_pixel):
-    keys = np.array(list(dist_to_pixel.keys()))
-    idx = np.abs(keys-dist).argmin()
-    key = keys[idx]
-    return dist_to_pixel[key]
-
-
-def plot_fov_result_pixel(result, title, filename, dist_to_pixel):
-
-    pos = result.posterior
-    for i in range(400):
-        chain = random.randint(0, len(pos.chain)-1)
-        draw = random.randint(0, len(pos.draw)-1)
-
-        # intercept = pos.Intercept[0][1].data
-        b0 = pos.Intercept[chain][draw].data
-        b3 = pos.fov_dist[chain][draw].data
-        b4 = pos.fov_dist2[chain][draw].data
-        b5 = pos.fov_dist3[chain][draw].data
-
-        x_plot = np.linspace(0, 7300, 200)/10000
-        y_plot = [np.exp(b0+b3 * x + b4 * x**2 + b5 * x**3) for x in x_plot]
-
-        x_plot_pixel = [get_pixel_from_dist(x*10000, dist_to_pixel) for x in x_plot]
-
-        plt.plot(x_plot_pixel, y_plot, color='lightblue', alpha=0.05)
-
-    plt.xlabel('distance from fov center (pixels)')
-    plt.ylabel('Bolide rate')
-    plt.title(title+' in 400 NUTS samples')
-    plt.savefig(f'plots/{filename}.png', dpi=300, bbox_inches='tight')
     plt.close()
