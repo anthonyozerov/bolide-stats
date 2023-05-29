@@ -40,6 +40,7 @@ def vinf_impact_dist(name, vinfs, n, tilt=earth_obliq):
         data = np.zeros((len(x_plot),len(vinfs)+1))
         data[:,0] = x_plot
         for i, vinf in enumerate(vinfs):
+            print(str(vinf)+' km/s')
             vs = [vinf] * n
             eclipticlats = [get_eclipticlat(v, pdf) for v in vs]
             lats = np.degrees(octave.getdist(vs,np.radians(eclipticlats), tilt).flatten())
@@ -50,7 +51,7 @@ def vinf_impact_dist(name, vinfs, n, tilt=earth_obliq):
             #plt.show()
             density /= density[int(len(density)/2)]
             data[:,i+1] = density
-        np.savetxt(f'impacts/{name}-dist.csv', data, delimiter=',', header="lat,"+",".join([str(v) for v in vinfs]), comments='')
+        np.savetxt(f'impacts/{filename}', data, delimiter=',', header="lat,"+",".join([str(v) for v in vinfs]), comments='')
 
 #shower_impact_dist('leonids-eclip', 100000, 70.66, 162, 148, 1e-6)
 #vinf_impact_dist('high-vel-eclip', [50, 55, 60, 65, 68], 100000, 1e-6)
