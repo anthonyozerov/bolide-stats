@@ -33,13 +33,14 @@ g17 = bdf_subset[bdf_subset.detectedBy == 'G17']
 f = 'x^1+x^2+x^3+x^4+x^5+x^6'
 
 run_model('reg', g16=g16, g17=g17, n_points=1000, f_lat=f, f_fov=f, showers=[],biases=['flash_dens','land'])
+run_model('reg-separate', g16=g16, g17=g17, n_points=1000, f_lat=f, f_fov=f, showers=[],biases=['flash_dens','land'], separate=True)
 run_model('reg-S', g16=g16, g17=g17, n_points=1000, f_lat=f, f_fov=f, showers=[],biases=['flash_dens','land','stereo'])
 run_model('leo', g16=g16, g17=g17, n_points=1000, f_lat=f, f_fov=f, showers=['LEO'],biases=['flash_dens','land'])
 run_model('leo-known', g16=g16, g17=g17, n_points=1000, f_lat=f, f_fov=f, showers=['LEO'],biases=['flash_dens','land'], shower_data=shower_data)
 run_model('leoper', g16=g16, g17=g17, n_points=1000, f_lat=f, f_fov=f, showers=['LEO','PER'],biases=['flash_dens','land'])
 run_model('leoper-known', g16=g16, g17=g17, n_points=1000, f_lat=f, f_fov=f, showers=['LEO','PER'],biases=['flash_dens','land'], shower_data=shower_data)
 
-for conf in [0.25, 0.5, 0.7, 0.8, 0.9]:
+for conf in [0.25, 0.5, 0.7, 0.8, 0.9, 0.95, 0.99]:
     bdf_subset = bdf[bdf.confidence >= conf]
     g16 = bdf_subset[bdf_subset.detectedBy == 'G16']
     g17 = bdf_subset[bdf_subset.detectedBy == 'G17']

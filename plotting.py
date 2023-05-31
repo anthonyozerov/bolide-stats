@@ -44,7 +44,7 @@ def plot_polygons(gdf, data, filename=None, label='Polygon area (km$^{-2}$)',
     for num, poly in enumerate(gdf.geometry):
         ax.add_geometries([poly], crs=crs, color=colors[num], linewidth=0)
 
-    points = [Point(lon, lat) for lon, lat in zip(gdf['lon'], gdf['lat']*90)]
+    points = [Point(lon, lat) for lon, lat in zip(gdf['lon'], gdf['lat'])]
     points = GeoDataFrame(geometry=points, crs='epsg:4326').to_crs(crs.proj4_init).geometry
     x = np.array([p.x for p in points])
     y = np.array([p.y for p in points])
@@ -66,7 +66,7 @@ def plot_polygons(gdf, data, filename=None, label='Polygon area (km$^{-2}$)',
         ax2.stock_img()
         for num, poly in enumerate(gdf.geometry):
             ax2.add_geometries([poly], crs=crs, color=colors[num], linewidth=0)
-        points = [Point(lon, lat) for lon, lat in zip(gdf['lon'], gdf['lat']*90)]
+        points = [Point(lon, lat) for lon, lat in zip(gdf['lon'], gdf['lat'])]
         points = GeoDataFrame(geometry=points, crs='epsg:4326').to_crs(crs2.proj4_init).geometry
         x = np.array([p.x for p in points])
         y = np.array([p.y for p in points])
@@ -88,9 +88,9 @@ def plot_polygons(gdf, data, filename=None, label='Polygon area (km$^{-2}$)',
     # plt.show()
 
 
-def reformat_result(result):
+def reformat_result(result, which=0):
     import copy
-    r = result['results'][0]
+    r = result['results'][which]
     pos = r['idata'].posterior
     pos2 = {}
     for key in pos.keys():
@@ -107,7 +107,7 @@ def reformat_result(result):
     pos2['chain'] = pos.chain
     pos2['draw'] = pos.draw
     result2 = copy.deepcopy(result)
-    result2['results'][0]['idata'] = {'posterior':pos2}
+    result2['results'][which]['idata'] = {'posterior':pos2}
     return result2
 
 
@@ -131,9 +131,9 @@ def get_varfactor(f, var, x, shower='', adjust=None, m_ap=None, pos=None, chain=
     return varfactor, zero
 
 
-def plot_lat_result(result, title, filename=None, plot_map=True, max_lat=55, normalize=True, symmetric=False, shower='', theory=None, show=False):
+def plot_lat_result(result, title, which=0, filename=None, plot_map=True, max_lat=55, normalize=True, symmetric=False, shower='', theory=None, show=False, legend_col=2):
 
-    result = reformat_result(result)
+    result = reformat_result(result, which=which)
 
     plt.style.use('default')
     plt.rcParams['text.usetex'] = True
@@ -146,13 +146,13 @@ def plot_lat_result(result, title, filename=None, plot_map=True, max_lat=55, nor
 
     f_lat = result['f_lat']
     #result = result['results'][0]
-    pos = result['results'][0]['idata']['posterior']
+    pos = result['results'][which]['idata']['posterior']
     #m_ap = result['map']
-    max_area = result['results'][0]['max_area']
+    max_area = result['results'][which]['max_area']
 
     top_y = 0
     y_plots = np.zeros((400, 200//(int(symmetric)+1)))
-    x_plot = np.linspace(-max_lat, max_lat, 200)/90
+    x_plot = np.linspace(-max_lat, max_lat, 200)
     for i in range(401):
         chain = random.randint(0, len(pos['chain'])-1)
         draw = random.randint(0, len(pos['draw'])-1)
@@ -163,7 +163,7 @@ def plot_lat_result(result, title, filename=None, plot_map=True, max_lat=55, nor
             linewidth = 0.5
 
             intercept = pos[f"{shower}intercept"][chain][draw].data
-            adjust = result['results'][0]['adjust']
+            adjust = result['results'][which]['adjust']
             varfactor, zero = get_varfactor(f_lat, 'lat', x_plot, shower, adjust, pos=pos, chain=chain, draw=draw)
             #if shower != '':
             #    intercept += pos[shower][chain][draw].data
@@ -190,15 +190,15 @@ def plot_lat_result(result, title, filename=None, plot_map=True, max_lat=55, nor
         if i != 400:
             y_plots[i, :] = y_plot
         if not (i==400 and not plot_map):
-            ax1.plot(x_plot[midpoint:]*90, y_plot, color=color, alpha=alpha, linewidth=linewidth)
+            ax1.plot(x_plot[midpoint:], y_plot, color=color, alpha=alpha, linewidth=linewidth)
 
     # plot quantiles
     top_quantile = np.quantile(y_plots, 0.90, axis=0)
     bottom_quantile = np.quantile(y_plots, 0.10, axis=0)
     median = np.quantile(y_plots, 0.5, axis=0)
-    plt.plot(x_plot[midpoint:]*90, top_quantile, color='red', linewidth=1, linestyle='--')
-    plt.plot(x_plot[midpoint:]*90, bottom_quantile, color='red', linewidth=1, linestyle='--')
-    plt.plot(x_plot[midpoint:]*90, median, color='red', linewidth=1, linestyle='-')
+    plt.plot(x_plot[midpoint:], top_quantile, color='red', linewidth=1, linestyle='--')
+    plt.plot(x_plot[midpoint:], bottom_quantile, color='red', linewidth=1, linestyle='--')
+    plt.plot(x_plot[midpoint:], median, color='red', linewidth=1, linestyle='-')
 
     plt.xlabel('Latitude (°)')
     plt.ylabel('Normalized bolide flux')
@@ -242,7 +242,7 @@ def plot_lat_result(result, title, filename=None, plot_map=True, max_lat=55, nor
     else:
         handles.extend([line, line2, line3])
 
-    plt.legend(handles=handles, frameon=False, ncol=2)
+    plt.legend(handles=handles, frameon=False, ncol=legend_col)
     plt.gcf().set_size_inches((4, 3))
     # plt.savefig(f'plots/{filename}.png', dpi=300, bbox_inches='tight')
     # plt.savefig(f'plots/{filename}.pgf', bbox_inches='tight')
@@ -272,7 +272,7 @@ def plot_fov_result(result, title, filename=None, plot_map=True, normalize=False
     top_y = 0
     y_plots = np.zeros((400, 200))
     for i in range(401):
-        x_plot = np.linspace(0, 7300, 200)/10000
+        x_plot = np.linspace(0, 7300, 200)
         chain = random.randint(0, len(pos['chain'])-1)
         draw = random.randint(0, len(pos['draw'])-1)
 
@@ -302,7 +302,7 @@ def plot_fov_result(result, title, filename=None, plot_map=True, normalize=False
         top_y = max(max(y_plot), top_y)
 
         if angle:
-            x_plot = [distance_to_angle(x*10000) for x in x_plot]
+            x_plot = [distance_to_angle(x) for x in x_plot]
 
         if i != 400:
             y_plots[i, :] = y_plot
@@ -332,7 +332,7 @@ def plot_fov_result(result, title, filename=None, plot_map=True, normalize=False
         ax1.set_xlabel('distance from fov nadir (km)')
     ax1.set_ylim(0, top_y)
     plt.xlim(0, max(x_plot))
-    ax1.set_ylabel('Normalized bolide rate')
+    ax1.set_ylabel('Normalized bolide flux')
     plt.title(title)
 
     handles, labels = plt.gca().get_legend_handles_labels()
@@ -351,3 +351,75 @@ def plot_fov_result(result, title, filename=None, plot_map=True, normalize=False
     if show:
         plt.show()
     plt.close()
+
+def plot_fov_results(results, title, angle=True, truth=None, figsize=(4,3)):
+
+    plt.style.use('default')
+    plt.rcParams['text.usetex'] = True
+    plt.rcParams['xtick.direction'] = 'in'
+    plt.rcParams['xtick.top'] = True
+    plt.rcParams['ytick.direction'] = 'in'
+    plt.rcParams['ytick.right'] = True
+
+    fig, ax1 = plt.subplots()
+    fig.set_size_inches(figsize)
+
+    colors = ['darkblue','brown']
+
+    for n, result in enumerate(results):
+        result = reformat_result(result)
+        f_fov = result['f_lat']
+        pos = result['results'][0]['idata']['posterior']
+        m_ap = result['results'][0]['map']
+        max_area = result['results'][0]['max_area']
+
+        y_plots = np.zeros((400, 200))
+        for i in range(400):
+            x_plot = np.linspace(0, 7300, 200)
+            chain = random.randint(0, len(pos['chain'])-1)
+            draw = random.randint(0, len(pos['draw'])-1)
+
+            adjust = result['results'][0]['adjust']
+            varfactor, zero = get_varfactor(f_fov, 'fov', x_plot, adjust=adjust, pos=pos, chain=chain, draw=draw)
+
+            y_plot = np.exp(varfactor)/np.exp(zero)
+
+            if angle:
+                x_plot = [distance_to_angle(x) for x in x_plot]
+
+            y_plots[i, :] = y_plot
+
+        top_quantile = np.quantile(y_plots, 0.90, axis=0)
+        bottom_quantile = np.quantile(y_plots, 0.10, axis=0)
+        median = np.quantile(y_plots, 0.5, axis=0)
+        ax1.plot(x_plot, top_quantile, color=colors[n], linestyle='--', linewidth=0.5)
+        ax1.plot(x_plot, bottom_quantile, color=colors[n], linestyle='--', linewidth=0.5)
+        plt.plot(x_plot, median, color=colors[n], linewidth=1, linestyle='-')
+
+    if truth is not None and angle:
+        ax2 = ax1.twinx()
+        x = truth['AOI']
+        bg = truth['Background']
+        raw = truth['Lightning']
+        ax2.plot(x, bg, color='black', label="Integrated GLM background brightness", linestyle=':')
+        ax2.plot(x, raw, color='gray', label="Fraction of lightning signal reaching GLM", linestyle=':')
+        ax2.set_ylim(0, 1.1*max(max(bg), max(raw)))
+        ax2.set_ylabel('GLM sensor data')
+
+    if angle:
+        ax1.set_xlabel('Angle of incident light upon sensor (°)')
+    else:
+        ax1.set_xlabel('distance from fov nadir (km)')
+    plt.xlim(0, max(x_plot))
+    ax1.set_ylabel('Normalized bolide flux')
+    plt.title(title)
+
+    handles, labels = plt.gca().get_legend_handles_labels()
+    lines = []
+    lines.append(Line2D([0], [0], label=r'Central 80\% (\texttt{human})', color=colors[0], linestyle='--'))
+    lines.append(Line2D([0], [0], label=r'Median (\texttt{human})', color=colors[0], linestyle='-'))
+    lines.append(Line2D([0], [0], label=r'Central 80\% (\texttt{machine})', color=colors[1], linestyle='--'))
+    lines.append(Line2D([0], [0], label=r'Median (\texttt{machine})', color=colors[1], linestyle='-'))
+    handles.extend(lines)
+
+    plt.legend(handles=handles, frameon=False, loc='lower center', ncol=2)

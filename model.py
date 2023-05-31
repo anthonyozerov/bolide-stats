@@ -24,7 +24,7 @@ from partition import random_partition
 
 # function to add lons, lats, distances from nadir, and other
 # variables to the dataframe of polygons and counts.
-def get_data(gdf, fov_center=None, mapping=None, ecliptic=False):
+def get_data(gdf, fov_center=None, mapping=None, shower_data=None):
 
     # get the centroids of the polygons and their latitudes and longitudes
     centroids = [list(poly.centroid.xy) for poly in gdf.geometry]
@@ -38,7 +38,26 @@ def get_data(gdf, fov_center=None, mapping=None, ecliptic=False):
     # obtain a list of coordinates to compute the distances from the center of the field of view
     coords = list(zip(lats, lons))
     if fov_center is not None:
-        fov_dists = np.array(haversine_vector([fov_center]*len(coords), coords))
+        def unit(vec):
+            return vec/np.linalg.norm(vec)
+        transformer = pyproj.Transformer.from_crs(
+            {"proj":'latlong', "ellps":'WGS84', "datum":'WGS84'},
+            {"proj":'geocent', "ellps":'WGS84', "datum":'WGS84'}
+        )
+
+        nadir_lat = fov_center[0]
+        nadir_lon = fov_center[1]
+
+        goes_alt = 35786 * 1000
+        sat_vec = np.array(transformer.transform(nadir_lon,nadir_lat,goes_alt,radians = False))
+
+        lats = bdf.latitude
+        lons = bdf.longitude
+
+        loc_vecs = np.array([transformer.transform(lon,lat,10*1000,radians = False) for lat,lon in zip(coords)])
+
+        look_vecs = sat_vec-loc_vecs
+        aois = [np.degrees(np.arccos(np.dot(unit(sat_vec),unit(look_vec)))) for look_vec in look_vecs]
 
     # get the pixel pitches of the pixels on the CCD corresponding to the centroids
     if mapping is not None:
@@ -49,7 +68,7 @@ def get_data(gdf, fov_center=None, mapping=None, ecliptic=False):
 
     from netCDF4 import Dataset
     flash_data = Dataset('data/LISOTD_HRFC_V2.3.2015.nc')
-    flash_dens = np.sqrt(np.array([get_flash_density(flash_data, lat, lon) for lat, lon in zip(lats, lons)]))
+    flash_dens = np.array([get_flash_density(flash_data, lat, lon) for lat, lon in zip(lats, lons)])
     flash_dens = np.nan_to_num(flash_dens, copy=True, nan=np.nanmean(flash_dens))
     assert sum(np.isnan(flash_dens))==0
 
@@ -59,17 +78,18 @@ def get_data(gdf, fov_center=None, mapping=None, ecliptic=False):
 
     if shower_data is not None:
         for s, filename in shower_data.items():
-            print(f'loading {filename}')
-            shower_rate = np.array(pd.read_csv(filename))
-            shower_lats = shower_rate['lat']
-            rates = shower_rate['dens']
+            if s in gdf.columns:
+                print(f'loading {filename}')
+                shower_rate = pd.read_csv(filename)
+                shower_lats = np.array(shower_rate['lat'])
+                rates = np.array(shower_rate['dens'])
 
-            gdf[s+'rate'] = gdf[s]*np.interp(lats, shower_lats, rates)
+                gdf[s+'rate'] = gdf[s]*np.interp(lats, shower_lats, rates)
 
     # add new columns to the dataframe
     gdf['lat'] = lats
     gdf['lon'] = lons
-    gdf['fov_dist'] = fov_dists
+    gdf['aoi'] = aois
     gdf['flash_dens'] = flash_dens
     gdf['land'] = land
 
@@ -81,7 +101,7 @@ def get_data(gdf, fov_center=None, mapping=None, ecliptic=False):
 def fit(data, f_lat, f_fov, biases, showers, shower_known=False, **kwargs):
     # extract variables from the data
     lat = np.array(data['lat'])
-    fov = np.array(data['fov_dist'])
+    fov = np.array(data['aoi'])
     area = np.array(data['area'])
     max_area = max(area)
     area = area/max_area
@@ -141,20 +161,19 @@ def fit(data, f_lat, f_fov, biases, showers, shower_known=False, **kwargs):
 
         n1 = len(biases)+len(f_fov.split('+'))
         bias_term = np.exp(tt.dot(X.values[:,:n1], beta[:n1]))
-        total_rate = 0
-        ni = n1
-        step = len(f_fov.split('+'))
 
         if shower_known:
             print('shower rates are known')
-            intercept = pm.Cauchy(f"{s}intercept", alpha=0, beta=0.5)
+            intercept = pm.Cauchy(f"intercept", alpha=0, beta=0.5)
             shower_rate = 0
             for s in showers:
-                s_intercept = pm.HalfCauchy(f"{s}intercept", alpha=0, beta=0.5)
+                s_intercept = pm.HalfCauchy(f"{s}intercept", beta=0.5)
                 shower_rate += s_intercept*np.array(data[f'{s}rate'])
-            total_rate = np.exp(intercept + tt.dot(X.values, beta)) + shower_rate
+            total_rate = np.exp(intercept + tt.dot(X.values[:,n1:], beta[n1:])) + shower_rate
         else:
             total_rate = 0
+            ni = n1
+            step = len(f_fov.split('+'))
             for i in range(len(showers)+1):
                 s = (['']+showers)[i]
                 intercept = pm.Cauchy(f"{s}intercept", alpha=0, beta=0.5)
@@ -172,10 +191,10 @@ def fit(data, f_lat, f_fov, biases, showers, shower_known=False, **kwargs):
         # sample
         import pymc.sampling_jax
         # MCMC
-        draws = 5000
-        chains = 2
-        idata = pm.sampling_jax.sample_numpyro_nuts(draws, tune=2000, chains=chains,
-                                                    idata_kwargs={'log_likelihood':True})
+        draws = 10000
+        chains = 4
+        idata = pm.sampling_jax.sample_numpyro_nuts(draws, tune=5000, chains=chains,
+                                                    idata_kwargs={'log_likelihood':False})
         # don't include y in prior as extreme values of the coefficients make the rate of the
         # Poisson explode
         # idata.extend(pm.sample_prior_predictive(10000))
@@ -335,7 +354,7 @@ def full_model(g16=None, g17=None, separate=False, n_points=1000,
         fov = [goes_e_fov, goes_w_fov][num]
         fov_center = [goes_e, goes_w][num]
         gdf = discretize(bdf, fov=fov, lon=fov_center[1], n_points=n_points, showers=showers)
-        data = get_data(gdf, fov_center=fov_center, ecliptic=ecliptic, shower_data=shower_data)
+        data = get_data(gdf, fov_center=fov_center, shower_data=shower_data)
         data['sat'] = sats[num]
         datas.append(data)
     #    with open('models/data.pkl','wb') as f:
@@ -353,7 +372,8 @@ def full_model(g16=None, g17=None, separate=False, n_points=1000,
     else:
         results = []
         for data in datas:
-            result = fit(data, f_lat, f_fov, biases)
+            result = fit(data, f_lat, f_fov, biases, showers, shower_known)
             results.append(result)
+        datas = [d.to_crs(datas[0].crs) for d in datas]
         data = GeoDataFrame(pd.concat(datas, ignore_index=True), crs=datas[0].crs)
-        return dict(results=results, data=data)
+        return dict(results=results, data=data, f_lat=f_lat, f_fov=f_fov, biases=biases)
