@@ -1,5 +1,5 @@
 import numpy as np
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 from math import sqrt, pi
 import random
 from shapely import affinity
@@ -20,15 +20,15 @@ def random_partition(polygon, n_points, iterations, cover=False):
 
     coords = list(zip([p.x-min_x*2 for p in points], [p.y-min_y*2 for p in points]))
     shape = affinity.translate(polygon, -min_x*2, -min_y*2)
-    new_x = list(np.zeros(10))+list(np.zeros(10)-min_x*2+max_x*2)+list(np.linspace(0,-min_x*2+max_x*2,10))*2
-    new_y = list(np.linspace(0,-min_y*2+max_y*2,10))*2+list(np.zeros(10))+list(np.zeros(10)-min_y*2+max_y*2)
+    new_x = list(np.zeros(10))+list(np.zeros(10)-min_x*2+max_x*2)+list(np.linspace(0, -min_x*2+max_x*2, 10))*2
+    new_y = list(np.linspace(0, -min_y*2+max_y*2, 10))*2+list(np.zeros(10))+list(np.zeros(10)-min_y*2+max_y*2)
     coords += list(zip(new_x, new_y))
-    #plt.scatter([c[0] for c in coords], [c[1] for c in coords])
-    #plt.show()
+    # plt.scatter([c[0] for c in coords], [c[1] for c in coords])
+    # plt.show()
 
     for i in range(20):
         vor = Voronoi(coords)
-        #lines = [LineString(vor.vertices[line]) for line in vor.ridge_vertices]
+        # lines = [LineString(vor.vertices[line]) for line in vor.ridge_vertices]
         lines = [LineString(vor.vertices[line]) for line in vor.ridge_vertices if -1 not in line]
         polygons = list(polygonize(lines))
         polygons = [poly.intersection(shape) for poly in polygons]

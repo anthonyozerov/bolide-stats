@@ -1,16 +1,16 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from geopandas import GeoDataFrame
-from haversine import haversine_vector
+# from haversine import haversine_vector
 import pandas as pd
 from global_land_mask import globe
 import pymc as pm
 from tqdm import tqdm
 import pyproj
-import cartopy.crs as ccrs
+# import cartopy.crs as ccrs
 
-import os
-import pickle
+# import os
+# import pickle
 
 from shapely.geometry import Point
 
@@ -18,7 +18,7 @@ from bolides.fov_utils import get_boundary
 from bolides import ShowerDataFrame
 from bolides.constants import GOES_W_LON
 
-from geo_utils import get_pitch, get_flash_density, get_areas
+from geo_utils import get_flash_density, get_areas
 from partition import random_partition
 
 
@@ -41,36 +41,39 @@ def get_data(gdf, fov_center=None, mapping=None, shower_data=None):
         def unit(vec):
             return vec/np.linalg.norm(vec)
         transformer = pyproj.Transformer.from_crs(
-            {"proj":'latlong', "ellps":'WGS84', "datum":'WGS84'},
-            {"proj":'geocent', "ellps":'WGS84', "datum":'WGS84'}
+            {"proj": 'latlong', "ellps": 'WGS84', "datum": 'WGS84'},
+            {"proj": 'geocent', "ellps": 'WGS84', "datum": 'WGS84'}
         )
 
         nadir_lat = fov_center[0]
         nadir_lon = fov_center[1]
 
         goes_alt = 35786 * 1000
-        sat_vec = np.array(transformer.transform(nadir_lon,nadir_lat,goes_alt,radians = False))
+        sat_vec = np.array(transformer.transform(nadir_lon, nadir_lat, goes_alt, radians=False))
 
-        lats = bdf.latitude
-        lons = bdf.longitude
-
-        loc_vecs = np.array([transformer.transform(lon,lat,10*1000,radians = False) for lat,lon in zip(coords)])
+        # TODO: this isn't quite right because of the differing height of the GLM reference ellipsoid
+        loc_vecs = np.array([transformer.transform(lon, lat, 10*1000, radians=False) for lat, lon in coords])
 
         look_vecs = sat_vec-loc_vecs
-        aois = [np.degrees(np.arccos(np.dot(unit(sat_vec),unit(look_vec)))) for look_vec in look_vecs]
+        aois = [np.degrees(np.arccos(np.dot(unit(sat_vec), unit(look_vec)))) for look_vec in look_vecs]
 
     # get the pixel pitches of the pixels on the CCD corresponding to the centroids
-    if mapping is not None:
-        print('getting pixel pitches')
-        pitches = np.array([get_pitch(mapping, p.y, p.x) for p in tqdm(points)])
-        pitches /= 900
-
+    # if mapping is not None:
+    #     print('getting pixel pitches')
+    #     pitches = np.array([get_pitch(mapping, p.y, p.x) for p in tqdm(points)])
+    #     pitches /= 900
 
     from netCDF4 import Dataset
     flash_data = Dataset('data/LISOTD_HRFC_V2.3.2015.nc')
     flash_dens = np.array([get_flash_density(flash_data, lat, lon) for lat, lon in zip(lats, lons)])
     flash_dens = np.nan_to_num(flash_dens, copy=True, nan=np.nanmean(flash_dens))
-    assert sum(np.isnan(flash_dens))==0
+    assert sum(np.isnan(flash_dens)) == 0
+
+    cloud_data = np.loadtxt('data/cloud-avg.txt')
+    # use negative lat because cloud-avg is indexed differently
+    from geo_utils import idx_from_latlon
+    idxs = [idx_from_latlon(-lat, lon) for lat, lon in zip(lats, lons)]
+    cloud_props = [cloud_data[idx] for idx in idxs]
 
     # calculate whether a centroid is over land or not
     land = np.array([globe.is_land(lat, lon) for lat, lon in zip(lats, lons)])
@@ -91,14 +94,16 @@ def get_data(gdf, fov_center=None, mapping=None, shower_data=None):
     gdf['lon'] = lons
     gdf['aoi'] = aois
     gdf['flash_dens'] = flash_dens
+    gdf['cloud_prop'] = cloud_props
     gdf['land'] = land
 
     print(f'created dataframe with columns {list(gdf.columns)}')
 
     return gdf
 
+
 # given dataset, fit the model
-def fit(data, f_lat, f_fov, biases, showers, shower_known=False, **kwargs):
+def fit(data, f_lat, f_fov, biases, showers, shower_known=False, reg=True, **kwargs):
     # extract variables from the data
     lat = np.array(data['lat'])
     fov = np.array(data['aoi'])
@@ -113,14 +118,20 @@ def fit(data, f_lat, f_fov, biases, showers, shower_known=False, **kwargs):
     for bias in biases:
         bdata = np.array(data[bias]).astype(float)
         X[bias] = bdata
-    for term in f_fov.split('+'):
-        power = int(term.split('^')[1])
-        fovpower = fov**power
-        X[f'fov{power}'] = fovpower
-    for term in f_lat.split('+'):
-        power = int(term.split('^')[1])
-        latpower = lat**power
-        X[f'lat{power}'] = latpower
+    fov_terms = 0
+    if len(f_fov) > 0:
+        for term in f_fov.split('+'):
+            power = int(term.split('^')[1])
+            fovpower = fov**power
+            X[f'fov{power}'] = fovpower
+            fov_terms += 1
+    lat_terms = 0
+    if len(f_lat) > 0:
+        for term in f_lat.split('+'):
+            power = int(term.split('^')[1])
+            latpower = lat**power
+            X[f'lat{power}'] = latpower
+            lat_terms += 1
     if not shower_known:
         for s in showers:
             indicator = np.array(data[s])
@@ -129,7 +140,7 @@ def fit(data, f_lat, f_fov, biases, showers, shower_known=False, **kwargs):
                 latpower = lat**power
                 X[f'{s}lat{power}'] = latpower*indicator
 
-    var_names = X.columns.values
+    # var_names = X.columns.values
 
     # standardize X
     mean = X.mean()
@@ -138,38 +149,45 @@ def fit(data, f_lat, f_fov, biases, showers, shower_known=False, **kwargs):
     X /= scale
 
     # define model
-    with pm.Model(coords={"predictors": X.columns.values}) as model:
-        # https://www.pymc.io/projects/docs/en/stable/learn/core_notebooks/pymc_overview.html
-        import aesara.tensor as tt
+    with pm.Model(coords={"predictors": X.columns.values}):
+        import pytensor.tensor as tt
 
-        N, D = X.shape
-        D0 = 6+3*len(showers) # let's say 6 predictors + 3 per shower
+        if reg:
+            # https://doi.org/10.1214/17-EJS1337SI
+            # https://www.pymc.io/projects/docs/en/stable/learn/core_notebooks/pymc_overview.html
 
-        # Prior on error SD
-        sigma = pm.HalfNormal("sigma", 25)
+            # global shrinkage parameter
+            tau = pm.HalfCauchy("tau", beta=1)
 
-        # Global shrinkage prior
-        tau = pm.HalfStudentT("tau", 2, D0 / (D - D0) * sigma / np.sqrt(N))
-        # Local shrinkage prior
-        lam = pm.HalfStudentT("lam", 2, dims="predictors")
-        c2 = pm.InverseGamma("c2", 1, 0.1)
-        z = pm.Normal("z", 0.0, 1.0, dims="predictors")
-        # Shrunken coefficients
-        beta = pm.Deterministic(
-            "beta", z * tau * lam * tt.sqrt(c2 / (c2 + tau**2 * lam**2)), dims="predictors"
-        )
+            # slab width
+            c2 = pm.InverseGamma("c2", 2/2, 2/2)  # pg 8
+
+            # local shrinkage parameters
+            lam = pm.HalfStudentT("lam", 2, dims="predictors")
+
+            # standard normal Z just for convenience
+            z = pm.Normal("z", 0, 1, dims="predictors")
+
+            # for convenience
+            lambda_tilde = np.sqrt(c2*lam/(c2 + tau**2 * lam**2))
+
+            # beta ~ N(0, tau^2lambda^2)
+            beta = pm.Deterministic("beta", z * tau * lambda_tilde, dims="predictors")
+
+        else:
+            beta = pm.Normal("beta", mu=0, sigma=1, dims="predictors")
 
         n1 = len(biases)+len(f_fov.split('+'))
-        bias_term = np.exp(tt.dot(X.values[:,:n1], beta[:n1]))
+        bias_term = np.exp(tt.dot(X.values[:, :n1], beta[:n1]))
 
         if shower_known:
             print('shower rates are known')
-            intercept = pm.Cauchy(f"intercept", alpha=0, beta=0.5)
+            intercept = pm.Cauchy("intercept", alpha=0, beta=0.5)
             shower_rate = 0
             for s in showers:
                 s_intercept = pm.HalfCauchy(f"{s}intercept", beta=0.5)
                 shower_rate += s_intercept*np.array(data[f'{s}rate'])
-            total_rate = np.exp(intercept + tt.dot(X.values[:,n1:], beta[n1:])) + shower_rate
+            total_rate = np.exp(intercept + tt.dot(X.values[:, n1:], beta[n1:])) + shower_rate
         else:
             total_rate = 0
             ni = n1
@@ -177,24 +195,29 @@ def fit(data, f_lat, f_fov, biases, showers, shower_known=False, **kwargs):
             for i in range(len(showers)+1):
                 s = (['']+showers)[i]
                 intercept = pm.Cauchy(f"{s}intercept", alpha=0, beta=0.5)
-                if i>0:
+                if i > 0:
                     intercept *= np.array(data[showers[i-1]])
-                total_rate += np.exp(intercept + tt.dot(X.values[:,ni:(ni+step)], beta[ni:(ni+step)]))
-                ni+=step
+                total_rate += np.exp(intercept + tt.dot(X.values[:, ni:(ni+step)], beta[ni:(ni+step)]))
+                ni += step
 
         Lambda = bias_term * total_rate
 
         # Define Poisson likelihood
         print('creating y')
-        y = pm.Poisson("y", mu=area*duration*Lambda, observed=count.astype(int))
+        # if fov_terms > 0:
+        pm.Poisson("y", mu=area*duration*Lambda, observed=count.astype(int))
+        # else:
+        #    alpha = pm.Exponential('alpha', 0.01)
+        #    y = pm.NegativeBinomial("y", mu=area*duration*Lambda, alpha=alpha, observed=count.astype(int))
 
         # sample
-        import pymc.sampling_jax
+        from pymc.sampling_jax import sample_numpyro_nuts
         # MCMC
         draws = 10000
         chains = 4
-        idata = pm.sampling_jax.sample_numpyro_nuts(draws, tune=5000, chains=chains,
-                                                    idata_kwargs={'log_likelihood':False})
+        tune = 5000
+        idata = sample_numpyro_nuts(draws, tune=tune, chains=chains,
+                                    idata_kwargs={'log_likelihood': False})
         # don't include y in prior as extreme values of the coefficients make the rate of the
         # Poisson explode
         # idata.extend(pm.sample_prior_predictive(10000))
@@ -203,18 +226,19 @@ def fit(data, f_lat, f_fov, biases, showers, shower_known=False, **kwargs):
         idata_thin = idata.sel(draw=slice(None, None, int(n_samples/1000)))
         pp = None
         try:
-            pm.sample_posterior_predictive(idata_thin,extend_inferencedata=True)
+            pm.sample_posterior_predictive(idata_thin, extend_inferencedata=True)
             pp = idata_thin.posterior_predictive
         except ValueError as e:
             print(e)
         try:
-            MAP = pm.find_MAP(method='L-BFGS-B')
-        except:
+            MAP = pm.find_MAP(method='L-BFGS-B', maxeval=100000, tol=1e-5)
+        except ValueError:
             print("something in the MAP didn't work")
             MAP = None
 
     # return results
-    return {'idata': idata, 'map': MAP, 'max_area': max_area, 'pp': pp, 'predictors': X.columns.values, 'adjust': {'mean':mean,'scale':scale}}
+    return {'idata': idata, 'map': MAP, 'max_area': max_area,
+            'pp': pp, 'predictors': X.columns.values, 'adjust': {'mean': mean, 'scale': scale}}
 
 
 # function to get get polygons which partition the FOV
@@ -222,7 +246,7 @@ def get_polygons(fov, lon, transform=True, plot=True, n_points=1000):
 
     # specify different projections
     aeqd = pyproj.Proj(proj='aeqd', ellps='WGS84', datum='WGS84', lat_0=90, lon_0=0).srs
-    geo = pyproj.Proj(proj='geos', h=35785831, lon_0=lon).srs
+    # geo = pyproj.Proj(proj='geos', h=35785831, lon_0=lon).srs
     laea = pyproj.Proj(proj='laea', lon_0=lon).srs
     cea = pyproj.Proj(proj='cea', ellps='WGS84', datum='WGS84', lon_0=lon).srs
 
@@ -253,7 +277,7 @@ def get_polygons(fov, lon, transform=True, plot=True, n_points=1000):
 def discretize(bdf, fov=None, lon=None, showers=[], return_poly=False, n_points=1000):
     print('making polygons')
 
-    # get polygons in the cylyndrical equal area projection, and compute their areas 
+    # get polygons in the cylyndrical equal area projection, and compute their areas
     cea = pyproj.Proj(proj='cea', ellps='WGS84', datum='WGS84', lon_0=lon).srs
     polygons = get_polygons(fov, lon, transform=True, n_points=n_points, plot=False)
     areas = get_areas(polygons, cea)
@@ -287,10 +311,10 @@ def discretize(bdf, fov=None, lon=None, showers=[], return_poly=False, n_points=
 
     durations = np.array(durations).astype(float)
     counts = np.array(counts)
-    #plt.hist(counts[:len(polygons)])
-    #plt.show()
-    #plt.hist(counts[len(polygons):(2*len(polygons))])
-    #plt.show()
+    # plt.hist(counts[:len(polygons)])
+    # plt.show()
+    # plt.hist(counts[len(polygons):(2*len(polygons))])
+    # plt.show()
 
     # print(shower_data_dict)
 
@@ -301,7 +325,6 @@ def discretize(bdf, fov=None, lon=None, showers=[], return_poly=False, n_points=
     print('computing proportion in stereo region')
     stereo_region = get_boundary(['goes-w', 'goes-e'], crs=cea, collection=False, intersection=True)
     stereos = np.array([poly.intersection(stereo_region).area/poly.area for poly in polygons])
-
 
     # adjust durations and stereo for GOES-17
     if lon == GOES_W_LON:
@@ -315,27 +338,27 @@ def discretize(bdf, fov=None, lon=None, showers=[], return_poly=False, n_points=
         # halve the duration for any polygons in one FOV but not the other
         durations *= 1-(affected_prop)/2
 
-
     # test gdf for plotting
-    #gdf_poly = GeoDataFrame(data={'counts': counts, 'areas': areas, 'durations': durations}, geometry=polygons, crs=cea)
-    #gdf_poly['density'] = gdf_poly.counts/(gdf_poly.areas*gdf_poly.durations)
-    #gdf_poly.plot('density')
-    #plt.show()
+    # gdf_poly = GeoDataFrame(data={'counts': counts, 'areas': areas, 'durations': durations},
+    #                         geometry=polygons, crs=cea)
+    # gdf_poly['density'] = gdf_poly.counts/(gdf_poly.areas*gdf_poly.durations)
+    # gdf_poly.plot('density')
+    # plt.show()
 
     # create dataframe from the computed data
     data_dict = {'count': counts, 'area': areas, 'duration': durations, 'stereo': stereos}
     data_dict = dict(data_dict, **shower_data_dict)
     gdf = GeoDataFrame(data_dict, geometry=polygons, crs=cea)
 
-    #points = gdf.to_crs('epsg:4326').geometry
+    # points = gdf.to_crs('epsg:4326').geometry
 
     return gdf
 
 
 # define the full model
 def full_model(g16=None, g17=None, separate=False, n_points=1000,
-               f_lat='', f_fov='', biases=[], showers=[], 
-               shower_data=None):
+               f_lat='', f_fov='', biases=[], showers=[],
+               shower_data=None, reg=True):
     # get the fields of view for GOES E and GOES W
     goes_e_fov = get_boundary('goes-e')
     goes_w_fov = get_boundary('goes-w')
@@ -348,7 +371,7 @@ def full_model(g16=None, g17=None, separate=False, n_points=1000,
     # collect data
     datas = []
     sats = ['g16', 'g17']
-    #if 'data.pkl' not in os.listdir('models'):
+    # if 'data.pkl' not in os.listdir('models'):
     for num, bdf in enumerate([g16, g17]):
         # generate the data for each satellite separately
         fov = [goes_e_fov, goes_w_fov][num]
@@ -359,14 +382,14 @@ def full_model(g16=None, g17=None, separate=False, n_points=1000,
         datas.append(data)
     #    with open('models/data.pkl','wb') as f:
     #        pickle.dump(datas, f)
-    #with open('models/data.pkl','rb') as f:
+    # with open('models/data.pkl','rb') as f:
     #    datas = pickle.load(f)
     shower_known = (shower_data is not None)
     if not separate:
         # if not fitting separately, put the data for the two satellites together and fit
         datas = [d.to_crs(datas[0].crs) for d in datas]
         data = GeoDataFrame(pd.concat(datas, ignore_index=True), crs=datas[0].crs)
-        result = fit(data, f_lat, f_fov, biases, showers, shower_known)
+        result = fit(data, f_lat, f_fov, biases, showers, shower_known, reg)
         return dict(results=[result], data=data, f_lat=f_lat, f_fov=f_fov, biases=biases)
     # otherwise, do the fits separately
     else:
