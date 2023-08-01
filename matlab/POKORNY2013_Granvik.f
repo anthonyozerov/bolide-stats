@@ -1,6 +1,6 @@
       PROGRAM KOZAIOPIKPROB
 !
-! Compile with gfortran POKORNY2013_Granvik.f -o pokornygranvik.exe
+!  with gfortran POKORNY2013_Granvik.f -o pokornygranvik.exe
 !
 !!! TEXT DOLEVA
 !!! REFERENCE
@@ -11,20 +11,26 @@
 !
 ! Modifications 2020-09 by Darrel Robertson
 ! 1) Skip the Romberg integration and do directly
-!    since want to evenly pull out the probabilities of 
+!    since want to evenly pull out the probabilities of
 !    impacts at different ecliptic latitude and speed.
 ! 2) Read in and loop over all of the asteroids in Granvik or Bottke's
 !    synthetic NEO databases
-! 
+!
+! Modifications 2023-08-01 by Anthony Ozerov
+! 1) Include Sun-centered ecliptic longitude in the outputs.
+!    3D ecliptic latitude, Sun-centered ecliptic longitude, and velocity distribution is outputted as pvil.dat.
+!    2D ecliptic latitude and velocity distribution is outputted as pvi.dat.
+!    2D Sun-centered ecliptic longitude and velocity distribution is outputted as pvl.dat.
+!
 ! LICENCE:
-!                 ____________  
+!                 ____________
 ! This program is !!! FREE !!! to use, however, it would be very kind of you to
 !                 ------------
 ! put a reference into your article (reference to Vokrouhlicky et al. 2012)
 ! or better an article with Pokorny, P. as the first author (^_^) [if there is any]F
 ! there should be Pokorny et al. 2012/2013 soon accepted
 
-! Reference publication: 
+! Reference publication:
 !
 ! Opik-type collision probability for high-inclination orbits
 ! Vokrouhlicky, David; Pokorny, Petr; Nesvorny, David
@@ -38,32 +44,32 @@
 ! The Projectile is assumed to be on bound elliptic orbit around the Sun and non-resonant with any other planet
 ! The Projectile is defined by its semimajor axis (AU), eccentricity, Inclination (deg) and argument of pericenter (deg)
 !
-! An example input file for a projectile with orbital elements: a = 0.9 AU, e = 0.1, I = 55° and w = 0° 
+! An example input file for a projectile with orbital elements: a = 0.9 AU, e = 0.1, I = 55° and w = 0°
 ! impacting a target with a = 0.3871 AU, e = 0.2056 (Mercury-like)
 ! The result for the INPUT file should be: 2.5861999238971451  au^-2 yr^-1
 !                                /
 !                               /
-!                              /                       ___ 
-!                             *                    ,o88888   
-!                                               ,o8888888'  
-!                         ,:o:o:oooo.        ,8O88Pd8888"    
-!                     ,.::.::o:ooooOoOoO. ,oO8O8Pd888'"     
-!                   ,.:.::o:ooOoOoOO8O8OOo.8OOPd8O8O"     
-!                  , ..:.::o:ooOoOOOO8OOOOo.FdO8O8" 
-!                 , ..:.::o:ooOoOO8O888O8O,COCOO" 
-!                , . ..:.::o:ooOoOOOO8OOOOCOCO" 
-!                 . ..:.::o:ooOoOoOO8O8OCCCC"o 
-!                    . ..:.::o:ooooOoCoCCC"o:o 
-!                    . ..:.::o:o:,cooooCo"oo:o: 
-!                 `   . . ..:.:cocoooo"'o:o:::' 
-!                 .`   . ..::ccccoc"'o:o:o:::' 
-!                :.:.    ,c:cccc"':.:.:.:.:.' 
-!              ..:.:"'`::::c:"'..:.:.:.:.:.' 
-!            ...:.'.:.::::"'    . . . . .' 
-!           .. . ....:."' `   .  . . '' 
-!         . . . ...."' 
-!         .. . ."'    
-!        . 
+!                              /                       ___
+!                             *                    ,o88888
+!                                               ,o8888888'
+!                         ,:o:o:oooo.        ,8O88Pd8888"
+!                     ,.::.::o:ooooOoOoO. ,oO8O8Pd888'"
+!                   ,.:.::o:ooOoOoOO8O8OOo.8OOPd8O8O"
+!                  , ..:.::o:ooOoOOOO8OOOOo.FdO8O8"
+!                 , ..:.::o:ooOoOO8O888O8O,COCOO"
+!                , . ..:.::o:ooOoOOOO8OOOOCOCO"
+!                 . ..:.::o:ooOoOoOO8O8OCCCC"o
+!                    . ..:.::o:ooooOoCoCCC"o:o
+!                    . ..:.::o:o:,cooooCo"oo:o:
+!                 `   . . ..:.:cocoooo"'o:o:::'
+!                 .`   . ..::ccccoc"'o:o:o:::'
+!                :.:.    ,c:cccc"':.:.:.:.:.'
+!              ..:.:"'`::::c:"'..:.:.:.:.:.'
+!            ...:.'.:.::::"'    . . . . .'
+!           .. . ....:."' `   .  . . ''
+!         . . . ...."'
+!         .. . ."'
+!        .
 !
 !!!!!!!!!!!!!!!!!!!!!!!!
 
@@ -77,29 +83,56 @@
       real*8 inc     !   Inclination of the projectile [deg]
       real*8 omega   !   Argument of pericenter of the projectile [deg]
       real*8 outres  !   Total intrinsic collisional probability in au^-2 yr^-1
-      real*8 pi       
-      
+      real*8 pi
+
       integer aster   ! count of asteroid i NEO database
-      real*8 bigomega 
+      real*8 bigomega
       real*8 meananomly
       real*8 absmag
 !     I need to make an array to reproduce LeFeuvre & Wieczorek fig 5
-!     of the probability of impact vs velocity 
+!     of the probability of impact vs velocity
 !     and relative inclination (ecliptic latitude of radiant)
       real*8 pvi(100,200) !pviH(100,200,8)
+      real*8 pvl(100,400) !sun-centered eclon
+      real*8 pvil(100,180,360) !eclat and sun-centered eclon
+      real*8 pvi_tot(100,200) !pviH(100,200,8)
+      real*8 pvl_tot(100,400) !sun-centered eclon
       integer i,j,k     ! index counters
-      
+
       data pi/3.141592653589793/
-      
-      ! Initialize probability array
+
+      ! Initialize probability arrays
       !do k=1,8
        do j = 1,200
         do i = 1,100
-          pvi(i,j) = 0.d0  !pviH(i,j,k) = 0.d0 
+          pvi(i,j) = 0.d0
         enddo
        enddo
-      !enddo
-        
+       do j = 1,400
+        do i = 1,100
+          pvl(i,j) = 0.d0
+        enddo
+       enddo
+
+       do i = 1,100
+         do j = 1,180
+           do k = 1,360
+             pvil(i,j,k) = 0.d0
+           enddo
+         enddo
+       enddo
+
+       do j = 1,200
+        do i = 1,100
+          pvi_tot(i,j) = 0.d0
+        enddo
+       enddo
+       do j = 1,400
+        do i = 1,100
+          pvl_tot(i,j) = 0.d0
+        enddo
+       enddo
+
 !      write(*,*) "Semimajor axis of projectile in [AU]"
 !      read(*,*) a
 !      write(*,*) "Eccentricity of projectile"
@@ -118,9 +151,10 @@
           !-0.00000005 AU/century
       epl = 0.01671022
           !-0.00003804 /century
-          
+
       ! Read in Granvik database
       ! This database has specific values for all objects
+
       open(1, file='Granvik2018Icarus.dat',status='old')
       do aster=1,802000
          read(1,*) a,e,inc,bigomega,omega,meananomly,absmag
@@ -129,33 +163,40 @@
          omega=omega/180.d0*pi
 
 !        Calling the main subroutine
-         call WETKOZ(apl,epl,a,e,inc,omega,absmag,pvi)
+         call WETKOZ(apl,epl,a,e,inc,omega,absmag,pvi,pvl,pvil)
 
-!        Write output: 
-!        write(*,*) outres  !Total intrinsic collisional probability
+!        Progress indicator
          if ((MOD(aster,100)).EQ.0.) then  ! writing is time consuming so limit
-          write(*,*) aster
-          open(4, file='pvi.dat',status='replace')
-           write(4,*) aster
-           !do k=1,8
-            do j = 1,200
-             write(4,*) (pvi(i,j), i=1,100)
-            enddo
-           !enddo
-          close(4)
+             write(*,*) aster
          endif
-      enddo ! aster 
+      enddo
       close(1)
+
+!     Write out the probability arrays
+      open(4, file='pvi.dat',status='replace')
+        do j = 1,200
+         write(4,*) (pvi(i,j), i=1,100)
+        enddo
+      close(4)
+      open(5, file='pvl.dat',status='replace')
+        do j = 1,400
+         write(5,*) (pvl(i,j), i=1,100)
+        enddo
+      close(5)
+      open(6,file='pvil.dat',form='formatted',status='replace')
+      write(6,*) pvil
+      close(6)
+
       end  ! program
 
-      
-      
+
+
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !        SUBROUTINE AND FUNCTIONS AREA
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 
-      SUBROUTINE WETKOZ(apl,epl,apr,e,inc,omega,absmag,pvi)
+      SUBROUTINE WETKOZ(apl,epl,apr,e,inc,omega,absmag,pvi,pvl,pvil)
 
       IMPLICIT NONE
 
@@ -169,8 +210,9 @@
       INTEGER ik ! Integer 1 or 2 determining whether the true anomaly of the target is (0,180) or (180,360) - we to investigate the whole orbit
       INTEGER vindex  ! row for pvi
       INTEGER iindex  ! column for pvi
+      INTEGER lindex  ! column for pvl
       INTEGER Hindex
-      
+
       parameter(nmax=6) ! Determines the precision of the evaluation of the integral. The value 7 seems to give the best ration between speed and precision
       parameter(coef=2*2*((nmax-2)+3**(nmax-1))) ! Formula for the total number of steps of the integral
 
@@ -190,12 +232,14 @@
 !===== OUTPUTS ======s
       real*8 outres        ! Total intrinsic collisional probability in au^-2 yr^-1
       real*8 pvi(100,200) !pviH(100,200,8)  ! probability vs velocity and ecliptic latitude
+      real*8 pvl(100,400) !pviH(100,200,8)  ! probability vs velocity and ecliptic longitude
+      real*8 pvil(100,180,360) !
 !===== END OF OUTPUTS =====
 
 
       real*8 prob(8)!   Intrinsic collisional probability for 8 possible impact configurations for one r_0 of the target
       real*8 prob1  !   Sum of prob(8), total intrinsic collisional probability for one r_0 of the target
-      real*8 p8(8)  !   weighted collision prob 
+      real*8 p8(8)  !   weighted collision prob
 
       real*8 pi
       real*8 theta(8) ! ecliptic latitude of the radiants for 8 possible impact configurations (-pi/2,pi/2)
@@ -237,8 +281,8 @@
       real*8 funl ! Function subtitution for the first integral
       real*8 funu ! Function subtitution for the second integral
       real*8 sum  ! Intermediate sum in the evaluation of the integrals
-      real*8 func ! External function 
-      real*8 GM   
+      real*8 func ! External function
+      real*8 GM
       real*8 AU
       real*8 vcirc
 
@@ -256,13 +300,13 @@
 !     Zero to variables
       l=0
       outres=0d0
-      
+
       ! GM = gravitational constant * mass of the gravitational center
-      !GM = 0.2959122104742908d-03 ! in [astronomical unit**3 * mean solar day ** (-2) * solar mass**(-1) 
-      GM = 1.32712440018e20 ! m3 s-2 (solar mass)-1  
+      !GM = 0.2959122104742908d-03 ! in [astronomical unit**3 * mean solar day ** (-2) * solar mass**(-1)
+      GM = 1.32712440018e20 ! m3 s-2 (solar mass)-1
       AU = 1.495978707e11   ! m
-      vcirc = sqrt(GM/(apl*AU))/1000. ! km s-1  
-      
+      vcirc = sqrt(GM/(apl*AU))/1000. ! km s-1
+
 
       writeswitch = .FALSE.
       if (writeswitch .EQV. .TRUE.) then
@@ -299,47 +343,23 @@
      &                  prob,prob1,theta,phi,ik,outh,outk,
      &           outv,outIa,outIi,outIe,outIw,outapl,outepl)
          outR(l)=aa+x**2
-       
-         sum=sum+funl(x)*prob1
-        
 
-        
-!        Output flush
-         do k=1,8 
-           vindex = nint(min(outv(k)*vcirc,99.5)+0.5)  ! Floor + 1  Gives bin edges 0,1,2...100
-           iindex = nint(min(theta(k),89.5) + 90 + 0.5)   ! bin edges -90,-89..90
-           Hindex = int(min(absmag,24.99))-16  ! bin edges 17,18,...,24,25
-           p8(k) = funl(x)*prob(k)*(b-a)/tnm/4.d0
-           !pviH(vindex,iindex,Hindex)=pviH(vindex,iindex,Hindex)+p8(k)
-           pvi(vindex,iindex)=pvi(vindex,iindex)+p8(k)
-           
-           if (writeswitch .EQV. .TRUE.) then
-            write(2,*)funl(x)*prob(k)*(b-a)/tnm/4.d0
-     &      ,theta(k),outv(k)
-! !          write(3,*)n,l,sum,funl(x)*prob(k)*(b-a)/tnm/2.d0
-! !     &      ,prob(k),theta(k),phi(k),outv(k)
-! !     &      ,outIa(k),outIi(k),outIe(k),outIw(k)
-           endif
-         enddo 
-         
-         
-         x=x+ddel
-         l=l+1
-         CALL KOZAIOPIK(apr,e,inc,omega,apl,epl,aa+x**2,
-     &                   prob,prob1,theta,phi,ik,outh,outk,
-     &           outv,outIa,outIi,outIe,outIw,outapl,outepl)
-         outR(l)=aa+x**2
          sum=sum+funl(x)*prob1
-         
-!      Output flush
-         do k=1,8 
+
+
+
+!        Output flush
+         do k=1,8
            vindex = nint(min(outv(k)*vcirc,99.5)+0.5)  ! Floor + 1  Gives bin edges 0,1,2...100
            iindex = nint(min(theta(k),89.5) + 90 + 0.5)   ! bin edges -90,-89..90
+           lindex = nint(min(phi(k),179.5) + 180 + 0.5)   ! bin edges -180,-179..180
            Hindex = int(min(absmag,24.99))-16  ! bin edges 17,18,...,24,25
            p8(k) = funl(x)*prob(k)*(b-a)/tnm/4.d0
            !pviH(vindex,iindex,Hindex)=pviH(vindex,iindex,Hindex)+p8(k)
            pvi(vindex,iindex)=pvi(vindex,iindex)+p8(k)
-           
+           pvl(vindex,lindex)=pvl(vindex,lindex)+p8(k)
+           pvil(vindex,iindex,lindex)=pvil(vindex,iindex,lindex)+p8(k)
+
            if (writeswitch .EQV. .TRUE.) then
             write(2,*)funl(x)*prob(k)*(b-a)/tnm/4.d0
      &      ,theta(k),outv(k)
@@ -348,8 +368,38 @@
 ! !     &      ,outIa(k),outIi(k),outIe(k),outIw(k)
            endif
          enddo
-         
-         
+
+
+         x=x+ddel
+         l=l+1
+         CALL KOZAIOPIK(apr,e,inc,omega,apl,epl,aa+x**2,
+     &                   prob,prob1,theta,phi,ik,outh,outk,
+     &           outv,outIa,outIi,outIe,outIw,outapl,outepl)
+         outR(l)=aa+x**2
+         sum=sum+funl(x)*prob1
+
+!      Output flush
+         do k=1,8
+           vindex = nint(min(outv(k)*vcirc,99.5)+0.5)  ! Floor + 1  Gives bin edges 0,1,2...100
+           iindex = nint(min(theta(k),89.5) + 90 + 0.5)   ! bin edges -90,-89..90
+           lindex = nint(min(phi(k),179.5) + 180 + 0.5)   ! bin edges -180,-179..180
+           Hindex = int(min(absmag,24.99))-16  ! bin edges 17,18,...,24,25
+           p8(k) = funl(x)*prob(k)*(b-a)/tnm/4.d0
+           !pviH(vindex,iindex,Hindex)=pviH(vindex,iindex,Hindex)+p8(k)
+           pvi(vindex,iindex)=pvi(vindex,iindex)+p8(k)
+           pvl(vindex,lindex)=pvl(vindex,lindex)+p8(k)
+           pvil(vindex,iindex,lindex)=pvil(vindex,iindex,lindex)+p8(k)
+
+           if (writeswitch .EQV. .TRUE.) then
+            write(2,*)funl(x)*prob(k)*(b-a)/tnm/4.d0
+     &      ,theta(k),outv(k)
+! !          write(3,*)n,l,sum,funl(x)*prob(k)*(b-a)/tnm/2.d0
+! !     &      ,prob(k),theta(k),phi(k),outv(k)
+! !     &      ,outIa(k),outIi(k),outIe(k),outIw(k)
+           endif
+         enddo
+
+
          x=x+del
 11       continue ! do j=1,3^(n-2) integration loop
 
@@ -357,7 +407,7 @@
          s1=(b-a)*sum/tnm/2.d0
          !write(3,*)n,((b-a)*sum/tnm)/3.d0,s1,sum
          !write(2,*)n,((b-a)*sum/tnm)/3.d0,s1
-         
+
 !      Loop over the consencutive iterations of the integral
 !      SECOND INTEGRAL
        n=nmax
@@ -374,16 +424,19 @@
      &           outv,outIa,outIi,outIe,outIw,outapl,outepl)
           outR(l)=bb-x**2
           sum=sum+funu(x)*prob1
-          
+
 !       Output flush
-          do k=1,8 
+          do k=1,8
            vindex = nint(min(outv(k)*vcirc,99.5)+0.5)  ! Floor + 1  Gives bin edges 0,1,2...100
            iindex = nint(min(theta(k),89.5) + 90 + 0.5)   ! bin edges -90,-89..90
            Hindex = int(min(absmag,24.99))-16  ! bin edges 17,18,...,24,25
+           lindex = nint(min(phi(k),179.5) + 180 + 0.5)   ! bin edges -180,-179..180
            p8(k) = funu(x)*prob(k)*(b-a)/tnm/4.d0
            !pviH(vindex,iindex,Hindex)=pviH(vindex,iindex,Hindex)+p8(k)
            pvi(vindex,iindex)=pvi(vindex,iindex)+p8(k)
-           
+           pvl(vindex,lindex)=pvl(vindex,lindex)+p8(k)
+           pvil(vindex,iindex,lindex)=pvil(vindex,iindex,lindex)+p8(k)
+
            if (writeswitch .EQV. .TRUE.) then
             write(2,*)funu(x)*prob(k)*(b-a)/tnm/4.d0
      &      ,theta(k),outv(k)
@@ -393,7 +446,7 @@
            endif
           enddo
           !write(2,*)n,l,prob1,funu(x),funu(x)*prob1,sum
-          
+
           x=x+ddel
           l=l+1
           CALL KOZAIOPIK(apr,e,inc,omega,apl,epl,bb-x**2,
@@ -401,17 +454,20 @@
      &           outv,outIa,outIi,outIe,outIw,outapl,outepl)
           outR(l)=bb-x**2
           sum=sum+funu(x)*prob1
-          
-          
+
+
 !       Output flush
-          do k=1,8 
+          do k=1,8
            vindex = nint(min(outv(k)*vcirc,99.5)+0.5)  ! Floor + 1  Gives bin edges 0,1,2...100
            iindex = nint(min(theta(k),89.5) + 90 + 0.5)   ! bin edges -90,-89..90
+           lindex = nint(min(phi(k),179.5) + 180 + 0.5)   ! bin edges -180,-179..180
            Hindex = int(min(absmag,24.99))-16  ! bin edges 17,18,...,24,25
            p8(k) = funu(x)*prob(k)*(b-a)/tnm/4.d0
            !pviH(vindex,iindex,Hindex)=pviH(vindex,iindex,Hindex)+p8(k)
            pvi(vindex,iindex)=pvi(vindex,iindex)+p8(k)
-           
+           pvl(vindex,lindex)=pvl(vindex,lindex)+p8(k)
+           pvil(vindex,iindex,lindex)=pvil(vindex,iindex,lindex)+p8(k)
+
            if (writeswitch .EQV. .TRUE.) then
             write(2,*)funu(x)*prob(k)*(b-a)/tnm/4.d0
      &      ,theta(k),outv(k)
@@ -420,20 +476,20 @@
 ! !     &      ,outIa(k),outIi(k),outIe(k),outIw(k)
            endif
           enddo
-          
-          
+
+
           x=x+del
 12       continue   ! integration loop
 
 !         s2=(s2+(b-a)*sum/tnm)/3d0
          s2=(b-a)*sum/tnm/2d0
          outres=(s1+s2)+outres
-       
+
       enddo  !ik=1,2
 
       outres=outres/2.d0
-      
-      
+
+
 ! SIMPLE ADDITIONAL OUTPUT EXAMPLE
 !      open(1, file='data.dat',status='replace')
 !      ! write(1,*) outres
@@ -447,7 +503,7 @@
 !      enddo
 !      close(1)
 ! END OF EXAMPLE
-      
+
       if (writeswitch .EQV. .TRUE.) then
        close(2)
        !close(3)
@@ -456,7 +512,7 @@
 
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-! Function \psi from the article Pokorny et al. 2013 - needed for 
+! Function \psi from the article Pokorny et al. 2013 - needed for
 ! the total probability
 
       REAL*8 function func(x,a,b)
@@ -467,11 +523,11 @@
 
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-! This subroutine computes a collision probability for a target on elliptic 
+! This subroutine computes a collision probability for a target on elliptic
 ! non-inclined orbit with a projectile on bound heliocentric orbit
-! 
+!
 ! The subroutine itself computes a probability only for one heliocentric
-! distance of the target rpl, the total probability must be computed as 
+! distance of the target rpl, the total probability must be computed as
 ! an integral of individual probabilities from pericenter to apocenter
 
 
@@ -483,11 +539,11 @@
       IMPLICIT NONE
 !     INPUT VARIABLES
       real*8 a ! Semimajor axis of the projectile [AU]
-      real*8 e ! Eccentricity of the projectile 
+      real*8 e ! Eccentricity of the projectile
       real*8 inc ! Inclination of the projectile [rad]
       real*8 om ! Argument of pericenter of the projectile [rad]
       real*8 apl ! Semimajor axis of the target [AU]
-      real*8 epl ! Eccentricity of the target 
+      real*8 epl ! Eccentricity of the target
       real*8 rpl ! Heliocentric distance of the target [AU]
 !     END OF INPUT
 
@@ -514,7 +570,7 @@
       real*8 Cc
       real*8 Cd
 
-      real*8 y(4) ! Real part of the roots - maximum 8 impact configurations => 4 unique values of k=e*cos(omega) 
+      real*8 y(4) ! Real part of the roots - maximum 8 impact configurations => 4 unique values of k=e*cos(omega)
       real*8 z(8) ! h=e*cos(omega) - from EQ (10) in Vokrouhlicky, Pokorny, Nesvorny 2012
       real*8 k ! k=e*cos(omega) - just more convenient and readable variable without array
       real*8 hh(2) ! Array of 2 possible values of h=e*sin(omega) for one unique k=e*cos(omega)
@@ -530,14 +586,14 @@
 
       real*8 dk ! Displacement in k, for an exact impact configuration point - EQ (19) in Vokrouhlicky, Pokorny, Nesvorny 2012
       real*8 dh ! Displacement in h, for an exact impact configuration point - EQ (19) in Vokrouhlicky, Pokorny, Nesvorny 2012
-      real*8 dkdt ! Derivation of k=e*cos(omega) by time - EQ (27) in Vokrouhlicky, Pokorny, Nesvorny 2012 
-      real*8 dhdt ! Derivation of h=e*sin(omega) by time - EQ (28) in Vokrouhlicky, Pokorny, Nesvorny 2012 
+      real*8 dkdt ! Derivation of k=e*cos(omega) by time - EQ (27) in Vokrouhlicky, Pokorny, Nesvorny 2012
+      real*8 dhdt ! Derivation of h=e*sin(omega) by time - EQ (28) in Vokrouhlicky, Pokorny, Nesvorny 2012
 
-      real*8 phk ! EQ (21) in Vokrouhlicky, Pokorny, Nesvorny 2012 
-      real*8 phh ! EQ (22) in Vokrouhlicky, Pokorny, Nesvorny 2012 
-      real*8 psk ! EQ (23) in Vokrouhlicky, Pokorny, Nesvorny 2012 
-      real*8 psh ! EQ (24) in Vokrouhlicky, Pokorny, Nesvorny 2012 
-      real*8 den ! EQ (20) in Vokrouhlicky, Pokorny, Nesvorny 2012 
+      real*8 phk ! EQ (21) in Vokrouhlicky, Pokorny, Nesvorny 2012
+      real*8 phh ! EQ (22) in Vokrouhlicky, Pokorny, Nesvorny 2012
+      real*8 psk ! EQ (23) in Vokrouhlicky, Pokorny, Nesvorny 2012
+      real*8 psh ! EQ (24) in Vokrouhlicky, Pokorny, Nesvorny 2012
+      real*8 den ! EQ (20) in Vokrouhlicky, Pokorny, Nesvorny 2012
 
       real*8 Pom ! T_Kozai - The lenght of the one Lidov-Kozai cycle [yr] - see Kinoshita & Nakai 2007
 
@@ -581,7 +637,7 @@
 
 !     Zeros to variables
       theta=0d0
-      phi=0d0      
+      phi=0d0
       prob=0d0
       prob1=0d0
       ddd=0
@@ -590,12 +646,12 @@
 !     Determine initial k,h for the projectile
       kk=e*cos(om)
       hhh=e*sin(om)
-      
+
 !     Determine aplha,eta
       aph=rpl/a
       eta=sqrt(1d0-e*e)
 
-!     Evaluate integrals of motion       
+!     Evaluate integrals of motion
       c=eta*cos(inc)
       CapC=1./eta/eta*((2d0+3.*e*e)*(3d0*c*c-eta*eta)+15d0*
      &  (eta*eta-c*c)*(kk*kk-hhh*hhh))
@@ -603,16 +659,16 @@
 !     Gamma factor, where 0.0009546 is mass of the Jupiter in Solar Masses
 !     and 140.954423151 - this value is not important for the collision probability.
 !     However scales the length of Lidov-Kozai cycle
-      gamm=2d0*pi*0.0009546*sqrt(a**3)/140.954423151     
+      gamm=2d0*pi*0.0009546*sqrt(a**3)/140.954423151
 
-!     Iteration value      
+!     Iteration value
       l=1
 
 !!!   Should be computed only once (CHANGE)
       CALL KINOSHITA(CapC,c,eta,om,gamm,pom)
 
 !     Ascending/Descending node i = 1 Ascending, i = 2 Descending
- 
+
       do i=1,2
 
 !      Determine coefficients for the Cubic equation
@@ -620,7 +676,7 @@
        Ca=(-1.)**(i+1)*30.*aph
        Cb=6.*(3.*aph*aph+5.*aph-5.*c*c)
        Cc=(-1.)**(i+1)*aph*(36.*aph-20.-24.*c*c-CapC)
-       Cd=18.*aph*aph-20*aph-24*aph*c*c+30*c*c-CapC*aph      
+       Cd=18.*aph*aph-20*aph-24*aph*c*c+30*c*c-CapC*aph
 
 !      Call a routine to solve the cubic equation
        nroot = CUBIC(Ca, Cb, Cc, Cd, x)
@@ -628,8 +684,8 @@
 !       Loop over the roots of the cubic equation ie. the impact configurations
         do j=1, nroot
 
-!        We want only non-complex solutions 
-         if ((aimag(x(j)).eq.(0.)).and.(abs(real(x(j))).lt.(1.))) then 
+!        We want only non-complex solutions
+         if ((aimag(x(j)).eq.(0.)).and.(abs(real(x(j))).lt.(1.))) then
 !        Get the real part of the complex root of the equation, k=e*cos(omega)
          y(l)= real(x(j))
 !        Evaluate h=e*cos(omega) - EQ (10) in Vokrouhlicky, Pokorny, Nesvorny 2012
@@ -647,7 +703,7 @@
          hh(1)=z(2*l-1)
          hh(2)=z(2*l-0)
 !        Set number of unique h=e*cos(omega)
-         m2=2 
+         m2=2
 !        Look whether h=e*cos(omega) is unique, if not m2=1
          if (hh(2).eq.hh(1)) m2=1
 
@@ -657,7 +713,7 @@
          if (CapC.lt.(2*(3*c**2-1))) then
           m2=1
           hh(1)=abs(hh(1))
-!         See, whether omega is >180°, if yes then h must be < 0 
+!         See, whether omega is >180°, if yes then h must be < 0
           if (om.gt.pi) hh(1)=-hh(1)
          endif
 
@@ -708,7 +764,7 @@
           phh=2.*h*(2.*(-8.+12.*c*c+3.*k*k+18.*h*h)+CapC)
           psk=-2.*(k+(-1.)**(i+1)*aph/2.)*rho2
           psh=-2.*(h)*rho2
-!         Denominator EQ (20) in Vokrouhlicky, Pokorny, Nesvorny 2012 (ICARUS 
+!         Denominator EQ (20) in Vokrouhlicky, Pokorny, Nesvorny 2012 (ICARUS
           den=(phh*psk-phk*psh)
 !         And finally displacements EQ (19) in Vokrouhlicky, Pokorny, Nesvorny 2012 (ICARUS
           dk=phh/den/a
@@ -731,7 +787,7 @@ c     If Denominator is too small we have to compute the time in the proximity o
          dkdt1=-3./200.*gamm*eta*h*(1-
      &    5./2.*k*k*(eta*eta-c*c)/(1-eta*eta)/eta/eta+
      &    5./2.*(c*c-eta**4.)/(eta**4.)*h*h/(1-eta*eta))
-        dhdt1=3./200.*gamm*eta*k*(1+5./2.*h*h*c*c/eta**4.)      
+        dhdt1=3./200.*gamm*eta*k*(1+5./2.*h*h*c*c/eta**4.)
         k=k-dkdt1
         h=h-dhdt1
         eta=sqrt(1-h*h-k*k)
@@ -767,7 +823,7 @@ c        write(*,*) dist
         dkdt1=-3./200.*gamm*eta*h*(1-
      &    5./2.*k*k*(eta*eta-c*c)/(1-eta*eta)/eta/eta+
      &    5./2.*(c*c-eta**4.)/(eta**4.)*h*h/(1-eta*eta))
-        dhdt1=3./200.*gamm*eta*k*(1+5./2.*h*h*c*c/eta**4.)      
+        dhdt1=3./200.*gamm*eta*k*(1+5./2.*h*h*c*c/eta**4.)
         k=k+dkdt1
         h=h+dhdt1
         eta=sqrt(1-h*h-k*k)
@@ -799,7 +855,7 @@ c        write(*,*) "NEPRESKOK DRAH", timm,abs(timm)/pom,P2
         endif
         timm=timm/1E-5
 
-        prob(l*2-2+m) = 
+        prob(l*2-2+m) =
      &    abs(timm)/pom*P2/a
 
 !!!! 1/a is from R/a = rho
@@ -813,7 +869,7 @@ c      Denominator is OK, so we can go straighforward as in the article
         dkdt=-3./2.*gamm*eta*h*(1-
      &    5./2.*k*k*(eta*eta-c*c)/(1-eta*eta)/eta/eta+
      &    5./2.*(c*c-eta**4.)/(eta**4.)*h*h/(1-eta*eta))
-        dhdt=3./2.*gamm*eta*k*(1+5./2.*h*h*c*c/eta**4.)  
+        dhdt=3./2.*gamm*eta*k*(1+5./2.*h*h*c*c/eta**4.)
             prob(l*2-2+m)=abs(dk/dkdt)*2/pom*P2
       endif
 c      write(*,*) k,h,prob,i,m,l,theta(l*2-2+m),phi(l*2-2+m)
@@ -825,27 +881,28 @@ c      write(*,*) k,h,prob,i,m,l,theta(l*2-2+m),phi(l*2-2+m)
           endif
  200  continue
         enddo
-      
+
 
       enddo
 
       END
 
 
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!      
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       SUBROUTINE RADIANT_ECC(a,e,inc,om,apl,epl,rpl,theta,phi,P2,k,vel)
       IMPLICIT NONE
 
 ! This subroutine computes radiants of a particle (phi,theta)
 ! for a eccentric coplanar target and projectile
 ! apex of the target's motion has theta = 0, phi = 0
-! theta means ecliptic latitude 
-! phi means ecliptic longitude      
+! THE ABOVE IS IMPORTANT!!! SUN-CENTERED ECLON
+! theta means ecliptic latitude
+! phi means ecliptic longitude
 !!! INPUT/OUTPUT
 
 
 
-! INPUT Variables: 
+! INPUT Variables:
 ! a ... semimajor axis of the projectile
 ! e ... eccentricity of the projectile
 ! inc ... inclination of the projectile in radians
@@ -872,8 +929,8 @@ c      write(*,*) k,h,prob,i,m,l,theta(l*2-2+m),phi(l*2-2+m)
       data pi/3.141592653589793/
 
 ! GM = gravitational constant * mass of the gravitational center
-! in [astronomical unit**3 * mean solar day ** (-2) * solar mass**(-1) 
-      GM = 0.2959122104742908d-03       
+! in [astronomical unit**3 * mean solar day ** (-2) * solar mass**(-1)
+      GM = 0.2959122104742908d-03
 ! Some initial computations
       rad=pi/180.0d0
       eta=sqrt(1d0-e*e)
@@ -1068,7 +1125,7 @@ c ----------------------------------------------------------------------
       complex*16 x(2)
       real*8 a,b,c,DD
       integer QUAD,NROOT
-      
+
       if(a .eq. 0.)then
         if(b .eq. 0.)then
 c         We have a non-equation; therefore, we have no valid solution

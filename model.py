@@ -171,15 +171,19 @@ def fit(data, f_lat, f_fov, biases, showers, shower_known=False, reg=True, **kwa
             # for convenience
             lambda_tilde = np.sqrt(c2*lam/(c2 + tau**2 * lam**2))
 
-            # beta ~ N(0, tau^2lambda^2)
+            # beta ~ N(0, τ^2λ^2)
+            # in paper: θ ~ N(0, τ^2λ^2)
             beta = pm.Deterministic("beta", z * tau * lambda_tilde, dims="predictors")
 
-        else:
+        else: # no regularization
             beta = pm.Normal("beta", mu=0, sigma=1, dims="predictors")
 
         n1 = len(biases)+len(f_fov.split('+'))
+
+        # b(l)
         bias_term = np.exp(tt.dot(X.values[:, :n1], beta[:n1]))
 
+        # r_s(l)
         if shower_known:
             print('shower rates are known')
             intercept = pm.Cauchy("intercept", alpha=0, beta=0.5)
@@ -200,15 +204,14 @@ def fit(data, f_lat, f_fov, biases, showers, shower_known=False, reg=True, **kwa
                 total_rate += np.exp(intercept + tt.dot(X.values[:, ni:(ni+step)], beta[ni:(ni+step)]))
                 ni += step
 
+        # R(Centroid(L),t0) = b(l) * sum(r_s(l))
         Lambda = bias_term * total_rate
 
         # Define Poisson likelihood
         print('creating y')
-        # if fov_terms > 0:
+        # alpha = pm.Exponential("alpha", 1)
         pm.Poisson("y", mu=area*duration*Lambda, observed=count.astype(int))
-        # else:
-        #    alpha = pm.Exponential('alpha', 0.01)
-        #    y = pm.NegativeBinomial("y", mu=area*duration*Lambda, alpha=alpha, observed=count.astype(int))
+        # pm.NegativeBinomial("y", mu=area*duration*Lambda, alpha=alpha, observed=count.astype(int))
 
         # sample
         from pymc.sampling_jax import sample_numpyro_nuts

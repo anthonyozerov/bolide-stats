@@ -26,27 +26,17 @@ def run_model(name, **kwargs):
 
 
 print('loading data')
-bdf = BolideDataFrame(source='csv', files='data/pipeline.csv', annotate=False)
+bdf = BolideDataFrame(source='csv', files='data/pipeline-dedup.csv', annotate=False)
 bdf_subset = bdf[bdf.confidence >= 0.7]
 g16 = bdf_subset[bdf_subset.detectedBy == 'G16']
 g17 = bdf_subset[bdf_subset.detectedBy == 'G17']
 
 f = 'x^1+x^2+x^3+x^4+x^5+x^6'
 
-# run_model('reg', g16=g16, g17=g17, n_points=1000, f_lat=f, f_fov=f,
-#           showers=[], biases=['flash_dens', 'land'])
 run_model('reg', g16=g16, g17=g17, n_points=4000, f_lat=f, f_fov=f,
           showers=[], biases=['flash_dens', 'land', 'cloud_prop'])
-run_model('nofov', g16=g16, g17=g17, n_points=1000, f_lat=f, f_fov='',
-          showers=[], biases=[])
 run_model('reg-separate', g16=g16, g17=g17, n_points=1000, f_lat=f, f_fov=f,
           showers=[], biases=['flash_dens', 'land'], separate=True)
-run_model('reg-S', g16=g16, g17=g17, n_points=1000, f_lat=f, f_fov=f,
-          showers=[], biases=['flash_dens', 'land', 'stereo'])
-run_model('leo', g16=g16, g17=g17, n_points=1000, f_lat=f, f_fov=f,
-          showers=['LEO'], biases=['flash_dens', 'land'])
-run_model('leo-known', g16=g16, g17=g17, n_points=1000, f_lat=f, f_fov=f,
-          showers=['LEO'], biases=['flash_dens', 'land'], shower_data=shower_data)
 run_model('leoper', g16=g16, g17=g17, n_points=1000, f_lat=f, f_fov=f,
           showers=['LEO', 'PER'], biases=['flash_dens', 'land'])
 run_model('leoper-known', g16=g16, g17=g17, n_points=1000, f_lat=f, f_fov=f,

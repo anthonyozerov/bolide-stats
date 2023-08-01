@@ -233,9 +233,10 @@ def plot_lat_result(result, title, which=0, filename=None, to_plot=['samples', '
             x_plot = theory['lat']
         if theory.shape[1] == 2:
             plt.plot(x_plot, theory.iloc[:, 1], label='Theoretical')
-        elif theory.shape[1] == 6:
+        else:
             for vel in ['50', '60', '68']:
                 plt.plot(x_plot, theory[vel], label=f'{vel}km/s radiant')
+            plt.plot(x_plot, theory['all'], label='All radiants')
 
     plt.title(title)
     handles, labels = plt.gca().get_legend_handles_labels()
