@@ -4,6 +4,7 @@ from geopandas import GeoDataFrame
 import numpy as np
 import random
 import cartopy.crs as ccrs
+from arviz.stats.density_utils import _find_hdi_contours, _fast_kde_2d
 
 from shapely.geometry import Point
 
@@ -220,23 +221,30 @@ def plot_lat_result(result, title, which=0, filename=None, to_plot=['samples', '
 
     if theory is not None:
         Y = [c for c in theory.columns if c != 'lat']
+        if theory.shape[1] == 2:
+            x_plot = theory['lat']
+        else:
+            x_plot = theory['x_lat']
         if symmetric:
             nrows = theory.shape[0]
             midpoint = int(nrows/2)
-            x_plot = theory['lat'][midpoint:]
+
+            x_plot = x_plot[midpoint:]
             theory_sym = pd.DataFrame(columns=theory.columns)
-            theory_sym['lat'] = x_plot
+
             theory_sym[Y] = np.array(theory[Y][midpoint:])+np.flipud(np.array(theory[Y][:midpoint]))
             theory_sym[Y] /= 2
             theory = theory_sym
-        else:
-            x_plot = theory['lat']
         if theory.shape[1] == 2:
             plt.plot(x_plot, theory.iloc[:, 1], label='Theoretical')
         else:
-            for vel in ['50', '60', '68']:
-                plt.plot(x_plot, theory[vel], label=f'{vel}km/s radiant')
-            plt.plot(x_plot, theory['all'], label='All radiants')
+            for vel in ['0', '50', '65']:
+                density = np.array(theory[f'v{vel}_lat'])
+                if symmetric:
+                    density /= density[0]
+                else:
+                    density /= density[len(density)//2]
+                plt.plot(x_plot, density, label=f'$\geq${vel}km/s radiant')
 
     plt.title(title)
     handles, labels = plt.gca().get_legend_handles_labels()
@@ -249,7 +257,7 @@ def plot_lat_result(result, title, which=0, filename=None, to_plot=['samples', '
     if 'map' in to_plot:
         handles.extend([Line2D([0], [0], label='MAP', color='red', linestyle='-')])
 
-    plt.legend(handles=handles, frameon=False, ncol=legend_col)
+    plt.legend(handles=handles, frameon=False, ncol=legend_col, handletextpad=0.4)
     plt.gcf().set_size_inches(figsize)
     # plt.savefig(f'plots/{filename}.png', dpi=300, bbox_inches='tight')
     # plt.savefig(f'plots/{filename}.pgf', bbox_inches='tight')
@@ -435,3 +443,45 @@ def plot_fov_results(results, title, angle=True, truth=None, figsize=(4, 3)):
     plt.gca().add_artist(legend1)
 
     # plt.legend(handles=handles, frameon=False, loc='lower center', ncol=2)
+
+
+def contourplot(v1, v2, n1, n2, filename):
+    gridsize = [256, 256]
+    density, xmin, xmax, ymin, ymax = _fast_kde_2d(v1, v2, gridsize=gridsize)
+
+    xmin = v1.min()
+    xmax = v1.max()
+    ymin = v2.min()
+    ymax = v2.max()
+    X, Y = np.mgrid[xmin:xmax:(1j*gridsize[0]), ymin:ymax:(1j*gridsize[1])]
+
+    hdi_probs = np.array([0.5, 0.8, 0.9, 0.95, 0.99])
+    if min(hdi_probs) <= 0 or max(hdi_probs) >= 1:
+        raise ValueError("Highest density interval probabilities must be between 0 and 1")
+
+    # Calculate contour levels and sort for matplotlib
+    contour_levels = _find_hdi_contours(density, hdi_probs)
+    contour_levels.sort()
+
+    fig, ax = plt.subplots(figsize=(3, 3))
+    contours = ax.contour(X, Y, density, contour_levels, colors='black', linewidths=0.5,
+                          extent=(xmin, xmax, ymin, ymax))
+
+    xs = contours.collections[0].get_paths()[0].vertices[:, 0]
+    ys = contours.collections[0].get_paths()[0].vertices[:, 1]
+
+    plt.xlim(min(xs)-0.001, max(xs)+0.001)
+    plt.ylim(min(ys)-0.001, max(ys)+0.001)
+
+    strings = [str(p) for p in np.flip(hdi_probs)]
+    string_map = {k: f'${str(v)}$' for k, v in zip(contour_levels, strings)}
+    ax.clabel(contours, contours.levels, inline=True, fmt=string_map, fontsize=10)
+
+    plt.axvline(1, color='black', linestyle=':', linewidth=0.5)
+    plt.axhline(1, color='black', linestyle=':', linewidth=0.5)
+
+    plt.xlabel(r'$\exp(\gamma_{\mathrm{%s}})$' % n1)
+    plt.ylabel(r'$\exp(\gamma_{\mathrm{%s}})$' % n2)
+
+    plt.tight_layout()
+    plt.savefig(f'plots/{filename}.pdf', bbox_inches='tight')
