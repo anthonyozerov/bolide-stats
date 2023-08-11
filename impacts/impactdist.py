@@ -43,18 +43,16 @@ def sample_impacts(min_vinf=None, max_vinf=None,
         max_eclat = 90
 
     if any([vinf is None, eclon is None, eclat is None]):
-        data = np.loadtxt('../matlab/pvil.dat', skiprows=0).reshape((360, 180, 100))
+        data = np.loadtxt('../fortran/pvil.dat', skiprows=0).reshape((360, 180, 100))
         prob = data/np.sum(data)
         prob = prob[(min_eclon+180):(max_eclon+180), (min_eclat+90):(max_eclat+90), min_vinf:max_vinf]
         print(prob.shape)
         prob = prob/np.sum(prob)
         idx = np.random.choice(np.arange(0, np.product(prob.shape)), replace=True, p=prob.flatten(), size=n)
         eclons, eclats, vinfs = np.unravel_index(idx, prob.shape)
-        eclons = eclons+min_eclon+0.5
+        eclons = -(eclons+min_eclon+0.5+90)
         eclats = eclats+min_eclat+0.5
         vinfs = vinfs+min_vinf+0.5
-    # plt.hist(eclats, weights=1/np.cos(np.radians(eclats)))
-    # plt.show()
 
     if vinf is not None:
         print('vinf fixed')
@@ -76,11 +74,9 @@ def sample_impacts(min_vinf=None, max_vinf=None,
         if hasattr(dt, '__iter__'):
             assert len(dt) == n
         else:
-            dt = np.full(dts.shape, dt)
+            dt = np.full(n, dt)
 
-    coords = get_sun(Time(dts))
-    sollons = [c.ra.deg for c in coords]
-    sollons = np.radians(sollons)
+    sollons = np.radians([c.ra.deg for c in get_sun(Time(dts))])
 
     mu = 398600  # km3 s-2 standard gravitational parameter of earth (gm)
     r = 6371  # km mean radius
@@ -106,7 +102,7 @@ def sample_impacts(min_vinf=None, max_vinf=None,
     axis = np.array([0, 1, 0])
     X = [rotateVector(x, axis, -np.radians(eclat)) for x, eclat in tqdm(zip(X, eclats))]
     axis = np.array([0, 0, 1])
-    X = [rotateVector(x, axis, -np.radians(eclon)+sollon-pi/2) for x, eclon, sollon in tqdm(zip(X, eclons, sollons))]
+    X = [rotateVector(x, axis, (np.radians(eclon)+sollon)) for x, eclon, sollon in tqdm(zip(X, eclons, sollons))]
 
     X = np.array(X)
     coords = SkyCoord(HeliocentricTrueEcliptic(x=X[:, 0]*1000*u.pc,
@@ -150,19 +146,19 @@ def get_densities(df, samples, colname):
         density = np.exp(kde.score_samples(x_plot[:, np.newaxis]))
         # multiply by 3 to take into account the data triplication that occurs above
         # to get the KDE to be circular
-        df[colname+'_solarhour'+suffix] = density*3
+        df[colname+'solarhour'+suffix] = density*3
 
         X = sun_alts[:, np.newaxis]
         kde = KernelDensity(kernel="gaussian", bandwidth=4).fit(X)
         x_plot = np.array(df['x_sun_alt'])
         density = np.exp(kde.score_samples(x_plot[:, np.newaxis]))
-        df[colname+'_sun_alt'+suffix] = density
+        df[colname+'sun_alt'+suffix] = density
 
         X = lats[:, np.newaxis]
         kde = KernelDensity(kernel="gaussian", bandwidth=4).fit(X, sample_weight=1/np.cos(np.radians(lats)))
         x_plot = np.array(df['x_lat'])
         density = np.exp(kde.score_samples(x_plot[:, np.newaxis]))
-        df[colname+'_lat'+suffix] = density
+        df[colname+'lat'+suffix] = density
 
     return df
 
@@ -173,8 +169,7 @@ if not os.path.exists('impact-dists.csv'):
     df['x_lat'] = np.linspace(-90, 90, 200)
     for min_vinf in [0, 45, 50, 65]:
         print(f'Computing impact distributions for vinf >= {min_vinf}')
-        colname = f'v{min_vinf}'
-        # n should be 200000 for good stats
+        colname = f'v{min_vinf}_'
         samples = sample_impacts(min_vinf=min_vinf, n=400000)
         df = get_densities(df, samples, colname)
 
@@ -192,7 +187,8 @@ if not os.path.exists('leonids-dists.csv'):
     helio = icrs.transform_to(HeliocentricTrueEcliptic)
     eclat = helio.lat.value
     eclon = helio.lon.value
-    eclon -= 235 - 90
+    print(eclat, eclon)
+    eclon -= 235
     samples = sample_impacts(n=n, dt=dts, eclat=eclat, eclon=eclon, vinf=70.2)
     df = get_densities(df, samples, colname='')
     df.to_csv('leonids-dists.csv', index=False)
@@ -209,7 +205,7 @@ if not os.path.exists('perseids-dists.csv'):
     helio = icrs.transform_to(HeliocentricTrueEcliptic)
     eclat = helio.lat.value
     eclon = helio.lon.value
-    eclon -= 140 - 90
+    eclon -= 140
     samples = sample_impacts(n=n, dt=dts, eclat=eclat, eclon=eclon, vinf=59.1)
     df = get_densities(df, samples, colname='')
     df.to_csv('perseids-dists.csv', index=False)

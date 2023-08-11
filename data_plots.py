@@ -32,6 +32,7 @@ os.environ['PATH'] += ':/home/aozerov/.texlive/2023/bin/x86_64-linux'
 bdf = BolideDataFrame(source='csv', files='data/pipeline-dedup.csv', annotate=False)
 bdf = bdf[bdf.confidence > 0.7]
 
+##########################
 # MAIN DATA PLOT
 fig, ax = bdf.plot_detections(category='detectedBy', boundary=['goes-e', 'goes-w'], background=True, coastlines=True,
                               s=5, marker='.', figsize=(10, 4), colors={'G16': 'brown', 'G17': 'darkblue'}, crs=Eck4)
@@ -39,6 +40,7 @@ ax.gridlines(color='black', draw_labels=True)
 fig.savefig('plots/detections.pdf', bbox_inches='tight')
 plt.close()
 
+###########################
 # HUMAN VS MACHINE PLOT
 bdf_train = BolideDataFrame()
 sat_pipe = ['G16', 'G17']
@@ -99,7 +101,7 @@ colors = {r'In $\texttt{machine}$, not in $\texttt{human}$': 'brown',
 fig, ax = bdf_error.plot_detections(category='error', boundary=['goes-e', 'goes-w'],
                                     s=8, marker='.', figsize=(10, 4), colors=colors, crs=Eck4)
 ax.gridlines(color='black', draw_labels=True)
-fig.savefig('plots/fpfn.pdf', bbox_inches='tight')
+fig.savefig('plots/discrepancies.pdf', bbox_inches='tight')
 plt.close()
 
 
@@ -183,7 +185,7 @@ plt.xlabel('Latitude [°]')
 plt.ylabel('Normalized area at latitude')
 plt.savefig('plots/lat-area.pdf', bbox_inches='tight')
 
-
+#################################
 # SOLAR HOUR PLOTS
 bdf = BolideDataFrame(source='csv', files='data/pipeline-dedup.csv', annotate=False)
 bdf = bdf[bdf.confidence > 0.7]
@@ -218,7 +220,7 @@ plt.xlabel('Solar hour')
 plt.legend(frameon=False)
 plt.savefig('plots/solarhour-seasons.pdf', bbox_inches='tight')
 
-
+########################################
 # SOLAR LONGITUDE PLOT
 fig, ax = plt.subplots(1, 1, figsize=(8, 3))
 plt.hist(bdf['sollon'], bins=360, color='black')
@@ -248,6 +250,7 @@ plt.xlabel('Solar longitude (°)')
 plt.ylabel('Count')
 plt.savefig('plots/sollon.pdf', bbox_inches='tight')
 
+###########################################
 # USG (NON)UNIFORMITY
 bdf = BolideDataFrame(source='usg')
 fig, ax = bdf.plot_density(figsize=(10, 4), bandwidth=30, crs=Eck4)
@@ -290,45 +293,55 @@ data = result['data']
 laea = ccrs.LambertAzimuthalEqualArea(central_longitude=GOES_E_LON, central_latitude=0.0)
 g16 = data[data.sat == 'g16']
 density = g16['count']/(g16['area']*510072000)
-plot_polygons(g16, data=density, crs=laea, label='Bolide density (km$^{-2}$)', show=False,
+plot_polygons(g16, data=density, crs=laea, label='Bolide density [km$^{-2}$]', show=False,
               filename='bolide-density-g16', second='side', figsize=(10, 4),
               extent=[-140, -10.4, -60, 60])
 
-
+###################################
 # AOI SENSITIVITY DATA PLOT
 if os.path.exists('data/glm-bandpass.txt'):
     fov_truth = pd.read_csv('data/glm-bandpass.txt', skiprows=9, sep='\t')
     plt.figure(figsize=(4, 3))
-    plt.plot(fov_truth.AOI, fov_truth.Background, color='black', label="Integrated GLM\n background brightness")
-    plt.plot(fov_truth.AOI, fov_truth.Lightning, color='gray', label="Fraction of lightning\n signal reaching GLM")
+    plt.plot(fov_truth.AOI, fov_truth.Background, color='black', label="Integrated transmittance\n over filter passband")
+    plt.plot(fov_truth.AOI, fov_truth.Lightning, color='gray', label="Fraction of lightning\n signal reaching detector")
     plt.xlabel('Angle of incidence [°]')
     plt.ylabel('Measured GLM filter transmittance')
     plt.axvline(8.34, linestyle=':', color='black', label='Largest AOI in FOV')
     plt.legend(frameon=False)
     plt.savefig('plots/sensor-aoi.pdf', bbox_inches='tight')
 
+###########################
+# ECLON-ECLAT DENSITY
+
+data = np.loadtxt('fortran/pvil.dat', skiprows=0).reshape((360, 180, 100))
+d = np.sum(data, axis=2).T
+d = d / np.cos(np.radians(np.linspace(-89.5, 89.5, 180)))[:, np.newaxis]
+
 fig, ax = plt.subplots(figsize=(8, 3))
 for loc in ['bottom', 'top', 'left', 'right']:
     ax.spines[loc].set_color('white')
+img = ax.imshow(d/np.sum(d), cmap='Greys_r', extent=[90, -270, -90, 90])
+ax.set_xticks([90, 60, 30, 0, -30, -60, -90, -120, -150, -180, -210, -240, -270])
+plt.yticks([-90, -60, -30, 0, 30, 60, 90])
+ticks = np.array(list(ax.get_xticks()))
+ticks[ticks < 0] += 360
+ax.set_xticklabels([int(tick) for tick in ticks])
+plt.colorbar(img, label='Density')
+ax.tick_params(axis='both', color='white')
 
-d = np.sum(data, axis=2).T
-img = plt.imshow(d/np.sum(d), cmap='Greys_r', extent=[-180, 180, -90, 90])
 plt.xlabel('Sun-centered ecliptic longitude [°]')
 plt.ylabel('Ecliptic latitude [°]')
-plt.xticks([-180, -150, -120, -90, -60, -30, 0, 30, 60, 90, 120, 150, 180])
-plt.yticks([-90, -60, -30, 0, 30, 60, 90])
-plt.colorbar(label='Density')
-ax.tick_params(axis='both', color='white')
+
 plt.savefig('plots/eclon-eclat.png', dpi=300, bbox_inches='tight')
 plt.savefig('plots/eclon-eclat.pdf', dpi=300, bbox_inches='tight')
 
-
+############################
 # SOLAR PLOTS
 fig, axs = plt.subplots(1, 2, figsize=(8, 3))
 ax1 = axs[0]
 ax2 = axs[1]
 
-bdf_glm = BolideDataFrame(source='csv', files='data/pipeline-dedup.csv', annotate=False)
+bdf_glm = BolideDataFrame(source='csv', files='data/pipeline-dedup.csv', annotate=True)
 bdf_glm = bdf_glm[bdf_glm.confidence > 0.7]
 bdf_usg = BolideDataFrame(source='usg', annotate=True)
 
@@ -336,6 +349,7 @@ theory_exists = os.path.exists('impacts/impact-dists.csv')
 if theory_exists:
     df = pd.read_csv('impacts/impact-dists.csv')
 
+# SOLAR HOUR
 bdfs = [bdf_glm, bdf_usg]
 colors = ['black', 'grey']
 labels = ['GLM data', 'USG data']
@@ -355,13 +369,13 @@ for i in range(2):
     x_shift = bins[:-1] + step/2
     ax1.errorbar(x_shift+shift, dens, yerr=errors/(np.sum(counts)*step), linewidth=0, elinewidth=1, color=color)
 if theory_exists:
-    ax1.plot(df.x_solarhour, df.v0_solarhour*3,
+    ax1.plot(df.x_solarhour, df.v0_solarhour,
              label=r'$V_{\infty}\geq0$ km/s, whole Earth', linestyle='--', color='blue')
-    ax1.plot(df.x_solarhour, df.v50_solarhour*3,
+    ax1.plot(df.x_solarhour, df.v50_solarhour,
              label=r'$V_{\infty}\geq50$ km/s, whole Earth', linestyle='--', color='red')
-    ax1.plot(df.x_solarhour, df.v0_goes_solarhour*3,
+    ax1.plot(df.x_solarhour, df.v0_solarhour_glm,
              label=r'$V_{\infty}\geq0$ km/s, $\in$ GLM FOV', linestyle=':', color='blue')
-    ax1.plot(df.x_solarhour, df.v50_goes_solarhour*3,
+    ax1.plot(df.x_solarhour, df.v50_solarhour_glm,
              label=r'$V_{\infty}\geq50$ km/s, $\in$ GLM FOV', linestyle=':', color='red')
     ax1.set_xlim(0, 24)
 step = steps[0]
@@ -375,6 +389,7 @@ ax1.set_xlabel('Solar hour')
 ax1.set_xticks([0, 6, 12, 18, 24])
 ax1.legend(frameon=False)
 
+# SOLAR ALTITUDE
 bdfs = [bdf_glm, bdf_usg]
 colors = ['black', 'grey']
 labels = ['GLM data', 'USG data']
@@ -399,9 +414,9 @@ if theory_exists:
              label=r'Predicted, $V_{\infty}\geq0$ km/s, whole Earth', linestyle='--', color='blue')
     ax2.plot(df.x_sun_alt, df.v50_sun_alt,
              label=r'Predicted, $V_{\infty}\geq50$ km/s, whole Earth', linestyle='--', color='red')
-    ax2.plot(df.x_sun_alt, df.v0_goes_sun_alt,
+    ax2.plot(df.x_sun_alt, df.v0_sun_alt_glm,
              label=r'Predicted, $V_{\infty}\geq0$ km/s, $\in$ GLM FOV', linestyle=':', color='blue')
-    ax2.plot(df.x_sun_alt, df.v50_goes_sun_alt,
+    ax2.plot(df.x_sun_alt, df.v50_sun_alt_glm,
              label=r'Predicted, $V_{\infty}\geq50$ km/s, $\in$ GLM FOV', linestyle=':', color='red')
 
 ax2.set_xlim(-90, 90)

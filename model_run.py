@@ -4,7 +4,7 @@ import pickle
 import os
 from pathlib import Path
 
-shower_data = {'LEO': 'impacts/leonids-dist.csv', 'PER': 'impacts/perseids-dist.csv'}
+shower_data = {'LEO': 'impacts/leonids-dists.csv', 'PER': 'impacts/perseids-dists.csv'}
 
 if not os.path.exists('models'):
     os.makedirs('models')
@@ -37,9 +37,9 @@ run_model('reg', g16=g16, g17=g17, n_points=4000, f_lat=f, f_fov=f,
           showers=[], biases=['flash_dens', 'land', 'cloud_prop'])
 run_model('reg-separate', g16=g16, g17=g17, n_points=1000, f_lat=f, f_fov=f,
           showers=[], biases=['flash_dens', 'land'], separate=True)
-run_model('leoper', g16=g16, g17=g17, n_points=1000, f_lat=f, f_fov=f,
+run_model('leoper', g16=g16, g17=g17, n_points=2000, f_lat=f, f_fov=f,
           showers=['LEO', 'PER'], biases=['flash_dens', 'land'])
-run_model('leoper-known', g16=g16, g17=g17, n_points=1000, f_lat=f, f_fov=f,
+run_model('leoper-known', g16=g16, g17=g17, n_points=4000, f_lat=f, f_fov=f,
           showers=['LEO', 'PER'], biases=['flash_dens', 'land'], shower_data=shower_data)
 
 for conf in [0.25, 0.5, 0.7, 0.8, 0.9, 0.95, 0.99]:

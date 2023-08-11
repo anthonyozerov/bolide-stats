@@ -36,8 +36,8 @@ def csv_else_none(filename, skiprows=0, sep=','):
 
 lat_truth = csv_else_none('impacts/impact-dists.csv')
 fov_truth = csv_else_none('data/glm-bandpass.txt', skiprows=9, sep='\t')
-leo_truth = csv_else_none('impacts/leonids-dist.csv')
-per_truth = csv_else_none('impacts/perseids-dist.csv')
+leo_truth = csv_else_none('impacts/leonids-dists.csv')
+per_truth = csv_else_none('impacts/perseids-dists.csv')
 
 
 def load_model(name):
@@ -65,7 +65,7 @@ adjust = result['results'][0]['adjust']
 plt.figure(figsize=(4, 3))
 plt.hist(np.exp(np.array(pos.beta[:, :, 1]).flatten()/adjust['scale']['land']),
          bins=200, density=True, histtype='step', color='black', linewidth=2)
-plt.xlabel(r'$e^{\gamma_{\mathrm{Land}}}$ (Land detection efficiency multiplier)')
+plt.xlabel(r'$e^{\gamma_{\mathrm{land}}}$ (Land detection efficiency multiplier)')
 plt.ylabel('Posterior density')
 plt.savefig('plots/machine-land.pdf', bbox_inches='tight')
 plt.close()
@@ -73,7 +73,7 @@ plt.close()
 plt.figure(figsize=(4, 3))
 plt.hist(np.exp(np.array(pos.beta[:, :, 2]).flatten()/adjust['scale']['cloud_prop']),
          bins=200, density=True, histtype='step', color='black', linewidth=2)
-plt.xlabel(r'$e^{\gamma_{\mathrm{Cloud}}}$ (Cloud detection efficiency multiplier)')
+plt.xlabel(r'$e^{\gamma_{\mathrm{cloud}}}$ (Cloud detection efficiency multiplier)')
 plt.ylabel('Posterior density')
 plt.savefig('plots/machine-cloud.pdf', bbox_inches='tight')
 plt.close()
@@ -112,7 +112,7 @@ result, pos, adjust = load_model('human-reg-S')
 plt.figure(figsize=(4, 3))
 plt.hist(np.exp(np.array(pos.beta[:, :, 2]).flatten()/adjust['scale']['stereo']),
          bins=200, density=True, histtype='step', color='black', linewidth=2)
-plt.xlabel(r'$e^{\gamma_{\mathrm{Stereo}}}$ (Stereo region detection efficiency multiplier)')
+plt.xlabel(r'$e^{\gamma_{\mathrm{stereo}}}$ (Stereo region detection efficiency multiplier)')
 plt.ylabel('Posterior density')
 plt.savefig('plots/human-stereo.pdf', bbox_inches='tight')
 

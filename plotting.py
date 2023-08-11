@@ -24,6 +24,10 @@ def plot_polygons(gdf, data, filename=None, label='Polygon area (km$^{-2}$)',
     plt.rcParams['text.usetex'] = True
     plt.rcParams['xtick.direction'] = 'in'
     plt.rcParams['ytick.direction'] = 'in'
+    plt.rcParams['xtick.major.top'] = True
+    plt.rcParams['ytick.major.right'] = True
+    plt.rcParams['xtick.top'] = True
+    plt.rcParams['ytick.right'] = True
 
     crs_proj4 = crs.proj4_init
     gdf = gdf.to_crs(crs_proj4)
@@ -134,6 +138,10 @@ def plot_lat_result(result, title, which=0, filename=None, to_plot=['samples', '
     plt.rcParams['text.usetex'] = True
     plt.rcParams['xtick.direction'] = 'in'
     plt.rcParams['ytick.direction'] = 'in'
+    plt.rcParams['xtick.major.top'] = True
+    plt.rcParams['ytick.major.right'] = True
+    plt.rcParams['xtick.top'] = True
+    plt.rcParams['ytick.right'] = True
 
     fig, ax1 = plt.subplots()
     ax1.xaxis.set_tick_params(which='major', top='on')
@@ -208,7 +216,7 @@ def plot_lat_result(result, title, which=0, filename=None, to_plot=['samples', '
     if ylim is not None:
         plt.ylim(0, ylim)
 
-    plt.xlabel('Latitude (°)')
+    plt.xlabel('Latitude [°]')
     plt.ylabel('Normalized bolide flux')
     # try:
     #     plt.ylim(0, top_y)
@@ -221,10 +229,7 @@ def plot_lat_result(result, title, which=0, filename=None, to_plot=['samples', '
 
     if theory is not None:
         Y = [c for c in theory.columns if c != 'lat']
-        if theory.shape[1] == 2:
-            x_plot = theory['lat']
-        else:
-            x_plot = theory['x_lat']
+        x_plot = theory['x_lat']
         if symmetric:
             nrows = theory.shape[0]
             midpoint = int(nrows/2)
@@ -235,8 +240,13 @@ def plot_lat_result(result, title, which=0, filename=None, to_plot=['samples', '
             theory_sym[Y] = np.array(theory[Y][midpoint:])+np.flipud(np.array(theory[Y][:midpoint]))
             theory_sym[Y] /= 2
             theory = theory_sym
-        if theory.shape[1] == 2:
-            plt.plot(x_plot, theory.iloc[:, 1], label='Theoretical')
+        if shower != '':
+            density = np.array(theory['lat'])
+            if symmetric:
+                density /= density[0]
+            else:
+                density /= density[len(density)//2]
+            plt.plot(x_plot, density, label='Theoretical')
         else:
             for vel in ['0', '50', '65']:
                 density = np.array(theory[f'v{vel}_lat'])
@@ -257,10 +267,9 @@ def plot_lat_result(result, title, which=0, filename=None, to_plot=['samples', '
     if 'map' in to_plot:
         handles.extend([Line2D([0], [0], label='MAP', color='red', linestyle='-')])
 
-    plt.legend(handles=handles, frameon=False, ncol=legend_col, handletextpad=0.4)
+    loc = 'lower center' if shower == '' else 'upper left'
+    plt.legend(handles=handles, frameon=False, ncol=legend_col, handletextpad=0.4, loc=loc)
     plt.gcf().set_size_inches(figsize)
-    # plt.savefig(f'plots/{filename}.png', dpi=300, bbox_inches='tight')
-    # plt.savefig(f'plots/{filename}.pgf', bbox_inches='tight')
     if filename is not None:
         plt.savefig(f'plots/{filename}.pdf', bbox_inches='tight')
     if show:
@@ -276,6 +285,10 @@ def plot_fov_result(result, title, filename=None, plot_map=True, normalize=False
     plt.rcParams['text.usetex'] = True
     plt.rcParams['xtick.direction'] = 'in'
     plt.rcParams['ytick.direction'] = 'in'
+    plt.rcParams['xtick.major.top'] = True
+    plt.rcParams['ytick.major.right'] = True
+    plt.rcParams['xtick.top'] = True
+    plt.rcParams['ytick.right'] = True
 
     fig, ax1 = plt.subplots()
     ax1.xaxis.set_tick_params(which='major', top='on')
@@ -340,9 +353,9 @@ def plot_fov_result(result, title, filename=None, plot_map=True, normalize=False
         ax2.set_ylabel('Measured GLM sensitivity')
 
     if angle:
-        ax1.set_xlabel('Angle of incident light upon sensor (°)')
+        ax1.set_xlabel('Angle of incident light upon sensor [°]')
     else:
-        ax1.set_xlabel('distance from fov nadir (km)')
+        ax1.set_xlabel('Distance from fov nadir [km]')
     ax1.set_ylim(0, top_y)
     plt.xlim(0, max(x_plot))
     ax1.set_ylabel('Normalized bolide flux')
@@ -371,8 +384,10 @@ def plot_fov_results(results, title, angle=True, truth=None, figsize=(4, 3)):
     plt.style.use('default')
     plt.rcParams['text.usetex'] = True
     plt.rcParams['xtick.direction'] = 'in'
-    plt.rcParams['xtick.top'] = True
     plt.rcParams['ytick.direction'] = 'in'
+    plt.rcParams['xtick.major.top'] = True
+    plt.rcParams['ytick.major.right'] = True
+    plt.rcParams['xtick.top'] = True
     plt.rcParams['ytick.right'] = True
 
     fig, ax1 = plt.subplots()
@@ -412,12 +427,12 @@ def plot_fov_results(results, title, angle=True, truth=None, figsize=(4, 3)):
         x = truth['AOI']
         bg = truth['Background']
         raw = truth['Lightning']
-        ax2.plot(x, bg, color='black', label="Integrated GLM background brightness", linestyle=':')
-        ax2.plot(x, raw, color='gray', label="Fraction of lightning signal reaching GLM", linestyle=':')
+        ax2.plot(x, bg, color='black', label="Integrated transmittance over filter passband", linestyle=':')
+        ax2.plot(x, raw, color='gray', label="Fraction of lightning signal reaching detector", linestyle=':')
         ax2.set_ylim(0, 1.1*max(max(bg), max(raw)))
-        ax2.set_ylabel('Measured GLM sensitivity')
+        ax2.set_ylabel('Measured GLM filter transmittance')
 
-    ax1.set_xlabel('Angle of incident light upon sensor (°)')
+    ax1.set_xlabel('Angle of incident light upon sensor [°]')
 
     plt.xlim(0, max(x_plot))
     ax1.set_ylabel('Normalized bolide flux')
@@ -446,6 +461,16 @@ def plot_fov_results(results, title, angle=True, truth=None, figsize=(4, 3)):
 
 
 def contourplot(v1, v2, n1, n2, filename):
+
+    plt.style.use('default')
+    plt.rcParams['text.usetex'] = True
+    plt.rcParams['xtick.direction'] = 'in'
+    plt.rcParams['ytick.direction'] = 'in'
+    plt.rcParams['xtick.major.top'] = True
+    plt.rcParams['ytick.major.right'] = True
+    plt.rcParams['xtick.top'] = True
+    plt.rcParams['ytick.right'] = True
+
     gridsize = [256, 256]
     density, xmin, xmax, ymin, ymax = _fast_kde_2d(v1, v2, gridsize=gridsize)
 

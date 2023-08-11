@@ -84,10 +84,12 @@ def get_data(gdf, fov_center=None, mapping=None, shower_data=None):
             if s in gdf.columns:
                 print(f'loading {filename}')
                 shower_rate = pd.read_csv(filename)
-                shower_lats = np.array(shower_rate['lat'])
-                rates = np.array(shower_rate['dens'])
+                shower_lats = np.array(shower_rate['x_lat'])
 
-                gdf[s+'rate'] = gdf[s]*np.interp(lats, shower_lats, rates)
+                density = np.array(shower_rate['lat'])
+                density /= density[len(density)//2]
+
+                gdf[s+'rate'] = gdf[s]*np.interp(lats, shower_lats, density)
 
     # add new columns to the dataframe
     gdf['lat'] = lats
