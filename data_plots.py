@@ -27,8 +27,6 @@ plt.rcParams['ytick.major.right'] = True
 plt.rcParams['xtick.top'] = True
 plt.rcParams['ytick.right'] = True
 
-os.environ['PATH'] += ':/home/aozerov/.texlive/2023/bin/x86_64-linux'
-
 bdf = BolideDataFrame(source='csv', files='data/pipeline-dedup.csv', annotate=False)
 bdf = bdf[bdf.confidence > 0.7]
 

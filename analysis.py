@@ -20,8 +20,6 @@ plt.rcParams['xtick.top'] = True
 plt.rcParams['ytick.right'] = True
 plt.rcParams['text.usetex'] = True
 
-os.environ['PATH'] += ':/home/aozerov/.texlive/2023/bin/x86_64-linux'
-
 if not os.path.exists('plots'):
     os.makedirs('plots')
 
