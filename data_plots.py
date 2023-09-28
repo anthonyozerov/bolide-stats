@@ -15,7 +15,10 @@ from scipy.stats.distributions import chi2
 from astropy.coordinates import get_sun
 from astropy.time import Time
 from sklearn.neighbors import KernelDensity
+import matplotlib.ticker as mticker
+from matplotlib import colormaps
 from plotting import plot_polygons
+from matplotlib.lines import Line2D
 Eck4 = ccrs.EckertIV(central_longitude=GLM_STEREO_MIDPOINT)
 
 plt.style.use('default')
@@ -26,6 +29,152 @@ plt.rcParams['xtick.major.top'] = True
 plt.rcParams['ytick.major.right'] = True
 plt.rcParams['xtick.top'] = True
 plt.rcParams['ytick.right'] = True
+
+############################
+# SOLAR PLOT COMPARISON
+
+fig, axs = plt.subplots(1, 2, figsize=(8, 2.5))
+
+ax1 = axs[0]
+ax2 = axs[1]
+
+for i in range(2):
+
+    suffix = ['', '-mem'][i]
+    lsty = ['-', '--'][i]
+    model = ['Granvik+Pokorný', 'MEM3'][i]
+    df = pd.read_csv(f'impacts/impact-dists{suffix}.csv')
+
+    cmap = colormaps['viridis']
+    colors = cmap([0/65, 25/65, 45/65, 65/65])
+
+    # SOLAR HOUR
+    for n, vel in enumerate([0, 25, 45, 65]):
+        vel_fmt = str(vel)
+        ax1.plot(df.x_solarhour, df[f'v{vel}_solarhour'],
+                 label=r'$V_{\infty}\geq$ ' + vel_fmt + ' km/s', linestyle=lsty,
+                 color=colors[n])
+    ax1.set_xlim(0, 24)
+    ax1.set_ylim(0, 0.136)
+
+    ax1.set_ylabel('Density')
+    ax1.set_xlabel('Solar hour')
+    ax1.set_xticks([0, 6, 12, 18, 24])
+    ax1.legend(frameon=False)
+
+    # LATITUDE
+    Y = [c for c in df.columns if c != 'lat']
+    theory = df
+    x_plot = theory['x_lat']
+    nrows = theory.shape[0]
+    midpoint = int(nrows/2)
+
+    x_plot = x_plot[midpoint:]
+    theory_sym = pd.DataFrame(columns=theory.columns)
+
+    theory_sym[Y] = np.array(theory[Y][midpoint:])+np.flipud(np.array(theory[Y][:midpoint]))
+    theory_sym[Y] /= 2
+    theory = theory_sym
+    for n, vel in enumerate(['0', '25', '45', '65']):
+        density = np.array(theory[f'v{vel}_lat'])
+        density /= density[0]
+
+        ax2.plot(x_plot, density, linestyle=lsty, color=colors[n])
+
+ax2.set_xticks([0, 20, 40])
+ax2.set_xlim(0, 55)
+ax2.set_xlabel('Latitude [°]')
+ax2.set_ylabel('Normalized impact flux')
+ax2.set_ylim(0.6, 1.15)
+
+handles, labels = axs[0].get_legend_handles_labels()
+
+axs[0].get_legend().remove()
+
+left = -1.3
+yloc = 1.0
+l1 = plt.legend(handles[:4], labels[:4], loc=(left, yloc), frameon=False, ncols=4,
+                handletextpad=0.4, columnspacing=0.8, handlelength=0.5)
+custom_lines = [Line2D([0], [0], color='black', linestyle='-'),
+                Line2D([0], [0], color='black', linestyle='--')]
+l2 = plt.legend(custom_lines, ['Granvik+Pokorný', 'MEM3'], loc=(0.25, yloc),
+                frameon=False, handlelength=1.8, ncols=2,
+                handletextpad=0.3, columnspacing=0.4)
+plt.gca().add_artist(l1)
+
+for line in l1.get_lines():
+    line.set_linewidth(6.0)
+
+plt.savefig('plots/solar-theory-comp.pdf', bbox_inches='tight')
+
+
+###########################
+# ECLON-ECLAT DENSITY
+
+for n, suffix in enumerate(['', '-mem']):
+    data = np.loadtxt(f'fortran/pvil{suffix}.dat', skiprows=0).reshape((360, 180, 100))
+    d = np.sum(data, axis=2).T
+    d = d / np.cos(np.radians(np.linspace(-89.5, 89.5, 180)))[:, np.newaxis]
+
+    fig, ax = plt.subplots(subplot_kw={'projection': ccrs.Mollweide(central_longitude=0)},
+                           figsize=(4, 3))
+
+    ax.set_xlabel('Sun-centered ecliptic longitude [°]')
+    ax.set_ylabel('Ecliptic latitude [°]')
+
+    ax.set_global()
+    img = ax.imshow(d/np.sum(d), transform=ccrs.PlateCarree(),
+                    extent=[-180, 180, -90, 90], origin='upper', cmap='gray')
+    cbar = plt.colorbar(img, label='Density', orientation="horizontal",
+                        pad=0.09)
+    cbar.set_label('Density', labelpad=-0.8)
+
+    def my_formatter(x, pos):
+        if x.is_integer():
+            return str(int(x))
+        else:
+            return "{:.5f}".format(x)
+    cbar.formatter.set_powerlimits((-10, 10))
+    formatter = mticker.FuncFormatter(my_formatter)
+    cbar.ax.xaxis.set_major_formatter(formatter)
+
+    gl = ax.gridlines(draw_labels=True, linestyle="--", x_inline=True,
+                      crs=ccrs.PlateCarree(central_longitude=90), dms=True,
+                      linewidth=0.5)
+    gl.top_labels = True
+    gl.xlabel_style = {'color': 'white'}
+    gl.xlocator = mticker.FixedLocator([-90, 0, 179])
+    ax.invert_xaxis()
+
+    ax.text(-0.02, 0.55, 'Ecliptic latitude [°]', va='bottom', ha='center',
+            rotation='vertical', rotation_mode='anchor',
+            transform=ax.transAxes)
+    ax.text(0.5, -0.1, 'Sun-centered ecliptic longitude [°]', va='bottom', ha='center',
+            rotation='horizontal', rotation_mode='anchor',
+            transform=ax.transAxes)
+
+    # rewrite labels
+    plt.savefig(f'plots/eclon-eclat{suffix}.pdf', dpi=300, bbox_inches='tight')
+    for lab in gl._labels:
+        oldtxt = lab.artist.get_text()
+
+        newtxt = oldtxt
+        if 'W' in oldtxt or 'S' in oldtxt:
+            newtxt = oldtxt.replace("W", "").replace("S", "").replace("°", "")
+            if 'W' in oldtxt:
+                newtxt = str(-int(newtxt)+360) + "°"
+            else:
+                newtxt = str(-int(newtxt)) + "°"
+        else:
+            newtxt = oldtxt.replace("N", "").replace("E", "")
+        if newtxt == '179°':
+            newtxt = '180°'
+        lab.artist.set_text(newtxt)
+    plt.title(['Granvik+Pokorný', 'MEM3'][n])
+
+    plt.savefig(f'plots/eclon-eclat{suffix}.pdf', dpi=300, bbox_inches='tight')
+
+exit()
 
 bdf = BolideDataFrame(source='csv', files='data/pipeline-dedup.csv', annotate=False)
 bdf = bdf[bdf.confidence > 0.7]
@@ -159,9 +308,12 @@ fov_adjust_factor *= np.cos(np.radians(x_shift))
 fov_adjust = counts/fov_adjust_factor
 plt.errorbar(x_shift-0.60, fov_adjust/fov_adjust[midpoint], yerr=errors/fov_adjust_factor/fov_adjust[midpoint],
              linewidth=0, elinewidth=1, label='FOV-adjusted', color='red')
-plt.legend(frameon=False)
+plt.legend(frameon=False, loc='lower center')
 plt.xlabel('Latitude [°]')
 plt.ylim(0)
+ylims = plt.gca().get_ylim()
+xlims = plt.gca().get_xlim()
+
 plt.ylabel('Rate relative to equator')
 plt.savefig('plots/lat-hist.pdf', bbox_inches='tight')
 
@@ -177,8 +329,9 @@ plt.figure(figsize=(4, 3))
 plt.plot(x_shift, np.ones(len(x_shift)), color='black', label='Constant area')
 plt.plot(x_shift, cos_adjust_factor, color='grey', label='Cosine adjustment')
 plt.plot(x_shift, fov_adjust_factor/fov_adjust_factor[midpoint], color='red', label='FOV adjustment')
-plt.legend(frameon=False)
-plt.ylim(0)
+plt.legend(frameon=False, loc='lower center')
+plt.ylim(ylims)
+plt.xlim(xlims)
 plt.xlabel('Latitude [°]')
 plt.ylabel('Normalized area at latitude')
 plt.savefig('plots/lat-area.pdf', bbox_inches='tight')
@@ -300,148 +453,127 @@ plot_polygons(g16, data=density, crs=laea, label='Bolide density [km$^{-2}$]', s
 if os.path.exists('data/glm-bandpass.txt'):
     fov_truth = pd.read_csv('data/glm-bandpass.txt', skiprows=9, sep='\t')
     plt.figure(figsize=(4, 3))
-    plt.plot(fov_truth.AOI, fov_truth.Background, color='black', label="Integrated transmittance\n over filter passband")
-    plt.plot(fov_truth.AOI, fov_truth.Lightning, color='gray', label="Fraction of lightning\n signal reaching detector")
+    plt.plot(fov_truth.AOI, fov_truth.Background, color='black',
+             label="Integrated transmittance\n over filter passband")
+    plt.plot(fov_truth.AOI, fov_truth.Lightning, color='gray',
+             label="Fraction of lightning\n signal reaching detector")
     plt.xlabel('Angle of incidence [°]')
     plt.ylabel('Measured GLM filter transmittance')
     plt.axvline(8.34, linestyle=':', color='black', label='Largest AOI in FOV')
     plt.legend(frameon=False)
     plt.savefig('plots/sensor-aoi.pdf', bbox_inches='tight')
 
-###########################
-# ECLON-ECLAT DENSITY
-
-data = np.loadtxt('fortran/pvil.dat', skiprows=0).reshape((360, 180, 100))
-d = np.sum(data, axis=2).T
-d = d / np.cos(np.radians(np.linspace(-89.5, 89.5, 180)))[:, np.newaxis]
-
-fig, ax = plt.subplots(figsize=(8, 3))
-for loc in ['bottom', 'top', 'left', 'right']:
-    ax.spines[loc].set_color('white')
-img = ax.imshow(d/np.sum(d), cmap='Greys_r', extent=[90, -270, -90, 90])
-ax.set_xticks([90, 60, 30, 0, -30, -60, -90, -120, -150, -180, -210, -240, -270])
-plt.yticks([-90, -60, -30, 0, 30, 60, 90])
-ticks = np.array(list(ax.get_xticks()))
-ticks[ticks < 0] += 360
-ax.set_xticklabels([int(tick) for tick in ticks])
-plt.colorbar(img, label='Density')
-ax.tick_params(axis='both', color='white')
-
-plt.xlabel('Sun-centered ecliptic longitude [°]')
-plt.ylabel('Ecliptic latitude [°]')
-
-plt.savefig('plots/eclon-eclat.png', dpi=300, bbox_inches='tight')
-plt.savefig('plots/eclon-eclat.pdf', dpi=300, bbox_inches='tight')
-
 ############################
 # SOLAR PLOTS
-fig, axs = plt.subplots(1, 2, figsize=(8, 3))
-ax1 = axs[0]
-ax2 = axs[1]
 
-bdf_glm = BolideDataFrame(source='csv', files='data/pipeline-dedup.csv', annotate=True)
-bdf_glm = bdf_glm[bdf_glm.confidence > 0.7]
-bdf_usg = BolideDataFrame(source='usg', annotate=True)
+for suffix in ['', '-mem']:
+    fig, axs = plt.subplots(1, 2, figsize=(8, 3))
+    ax1 = axs[0]
+    ax2 = axs[1]
 
-theory_exists = os.path.exists('impacts/impact-dists.csv')
-if theory_exists:
-    df = pd.read_csv('impacts/impact-dists.csv')
+    bdf_glm = BolideDataFrame(source='csv', files='data/pipeline-dedup.csv', annotate=True)
+    bdf_glm = bdf_glm[bdf_glm.confidence > 0.7]
+    bdf_usg = BolideDataFrame(source='usg', annotate=True)
 
-# SOLAR HOUR
-bdfs = [bdf_glm, bdf_usg]
-colors = ['black', 'grey']
-labels = ['GLM data', 'USG data']
-shifts = [0, 0]
-steps = [1, 2]
-for i in range(2):
-    bdf = bdfs[i]
-    color = colors[i]
-    shift = shifts[i]
-    step = steps[i]
-    counts, bins = np.histogram(np.abs(bdf.solarhour), bins=np.arange(0, 24+step, step=step), density=False)
-    dens = counts/(np.sum(counts)*step)
-    # https://www.pp.rhul.ac.uk/~cowan/atlas/ErrorBars.pdf
-    lower = counts - chi2.ppf(0.05, df=2*counts)/2
-    upper = chi2.ppf(1-0.05, df=2*(counts+1))/2 - counts
-    errors = np.nan_to_num(np.vstack([lower, upper]))
-    x_shift = bins[:-1] + step/2
-    ax1.errorbar(x_shift+shift, dens, yerr=errors/(np.sum(counts)*step), linewidth=0, elinewidth=1, color=color)
-if theory_exists:
-    ax1.plot(df.x_solarhour, df.v0_solarhour,
-             label=r'$V_{\infty}\geq0$ km/s, whole Earth', linestyle='--', color='blue')
-    ax1.plot(df.x_solarhour, df.v50_solarhour,
-             label=r'$V_{\infty}\geq50$ km/s, whole Earth', linestyle='--', color='red')
-    ax1.plot(df.x_solarhour, df.v0_solarhour_glm,
-             label=r'$V_{\infty}\geq0$ km/s, $\in$ GLM FOV', linestyle=':', color='blue')
-    ax1.plot(df.x_solarhour, df.v50_solarhour_glm,
-             label=r'$V_{\infty}\geq50$ km/s, $\in$ GLM FOV', linestyle=':', color='red')
-    ax1.set_xlim(0, 24)
-step = steps[0]
-ax1.hist(bdf_glm.solarhour, density=True, bins=np.arange(0, 24+step, step=step),
-         histtype='step', color='black', label=r'GLM, $n$='+str(len(bdf_glm)))
-step = steps[1]
-ax1.hist(bdf_usg.solarhour, density=True, bins=np.arange(0, 24+step, step=step),
-         histtype='step', color='grey', label=r'USG, $n$='+str(len(bdf_usg)))
-ax1.set_ylabel('Density')
-ax1.set_xlabel('Solar hour')
-ax1.set_xticks([0, 6, 12, 18, 24])
-ax1.legend(frameon=False)
+    theory_exists = os.path.exists(f'impacts/impact-dists{suffix}.csv')
+    if theory_exists:
+        df = pd.read_csv(f'impacts/impact-dists{suffix}.csv')
 
-# SOLAR ALTITUDE
-bdfs = [bdf_glm, bdf_usg]
-colors = ['black', 'grey']
-labels = ['GLM data', 'USG data']
-shifts = [0, 0]
-steps = [7.5, 15]
-for i in range(2):
-    bdf = bdfs[i]
-    color = colors[i]
-    shift = shifts[i]
-    step = steps[i]
-    counts, bins = np.histogram(bdf.sun_alt_app, bins=np.arange(-90, 90+step, step=step), density=False)
-    dens = counts/(np.sum(counts)*step)
-    # https://www.pp.rhul.ac.uk/~cowan/atlas/ErrorBars.pdf
-    lower = counts - chi2.ppf(0.05, df=2*counts)/2
-    upper = chi2.ppf(1-0.05, df=2*(counts+1))/2 - counts
-    errors = np.nan_to_num(np.vstack([lower, upper]))
-    x_shift = bins[:-1] + step/2
-    ax2.errorbar(x_shift+shift, dens, yerr=errors/(np.sum(counts)*step), linewidth=0, elinewidth=1, color=color)
+    # SOLAR HOUR
+    bdfs = [bdf_glm, bdf_usg]
+    colors = ['black', 'grey']
+    labels = ['GLM data', 'USG data']
+    shifts = [0, 0]
+    steps = [1, 2]
+    for i in range(2):
+        bdf = bdfs[i]
+        color = colors[i]
+        shift = shifts[i]
+        step = steps[i]
+        counts, bins = np.histogram(np.abs(bdf.solarhour), bins=np.arange(0, 24+step, step=step), density=False)
+        dens = counts/(np.sum(counts)*step)
+        # https://www.pp.rhul.ac.uk/~cowan/atlas/ErrorBars.pdf
+        lower = counts - chi2.ppf(0.05, df=2*counts)/2
+        upper = chi2.ppf(1-0.05, df=2*(counts+1))/2 - counts
+        errors = np.nan_to_num(np.vstack([lower, upper]))
+        x_shift = bins[:-1] + step/2
+        ax1.errorbar(x_shift+shift, dens, yerr=errors/(np.sum(counts)*step), linewidth=0, elinewidth=1, color=color)
+    if theory_exists:
+        ax1.plot(df.x_solarhour, df.v0_solarhour,
+                 label=r'$V_{\infty}\geq0$ km/s, whole Earth', linestyle='--', color='blue')
+        ax1.plot(df.x_solarhour, df.v50_solarhour,
+                 label=r'$V_{\infty}\geq50$ km/s, whole Earth', linestyle='--', color='red')
+        ax1.plot(df.x_solarhour, df.v0_solarhour_glm,
+                 label=r'$V_{\infty}\geq0$ km/s, $\in$ GLM FOV', linestyle=':', color='blue')
+        ax1.plot(df.x_solarhour, df.v50_solarhour_glm,
+                 label=r'$V_{\infty}\geq50$ km/s, $\in$ GLM FOV', linestyle=':', color='red')
+        ax1.set_xlim(0, 24)
+    step = steps[0]
+    ax1.hist(bdf_glm.solarhour, density=True, bins=np.arange(0, 24+step, step=step),
+             histtype='step', color='black', label=r'GLM, $n$='+str(len(bdf_glm)))
+    step = steps[1]
+    ax1.hist(bdf_usg.solarhour, density=True, bins=np.arange(0, 24+step, step=step),
+             histtype='step', color='grey', label=r'USG, $n$='+str(len(bdf_usg)))
+    ax1.set_ylabel('Density')
+    ax1.set_xlabel('Solar hour')
+    ax1.set_xticks([0, 6, 12, 18, 24])
+    ax1.legend(frameon=False)
 
-if theory_exists:
-    ax2.plot(df.x_sun_alt, df.v0_sun_alt,
-             label=r'Predicted, $V_{\infty}\geq0$ km/s, whole Earth', linestyle='--', color='blue')
-    ax2.plot(df.x_sun_alt, df.v50_sun_alt,
-             label=r'Predicted, $V_{\infty}\geq50$ km/s, whole Earth', linestyle='--', color='red')
-    ax2.plot(df.x_sun_alt, df.v0_sun_alt_glm,
-             label=r'Predicted, $V_{\infty}\geq0$ km/s, $\in$ GLM FOV', linestyle=':', color='blue')
-    ax2.plot(df.x_sun_alt, df.v50_sun_alt_glm,
-             label=r'Predicted, $V_{\infty}\geq50$ km/s, $\in$ GLM FOV', linestyle=':', color='red')
+    # SOLAR ALTITUDE
+    bdfs = [bdf_glm, bdf_usg]
+    colors = ['black', 'grey']
+    labels = ['GLM data', 'USG data']
+    shifts = [0, 0]
+    steps = [7.5, 15]
+    for i in range(2):
+        bdf = bdfs[i]
+        color = colors[i]
+        shift = shifts[i]
+        step = steps[i]
+        counts, bins = np.histogram(bdf.sun_alt_app, bins=np.arange(-90, 90+step, step=step), density=False)
+        dens = counts/(np.sum(counts)*step)
+        # https://www.pp.rhul.ac.uk/~cowan/atlas/ErrorBars.pdf
+        lower = counts - chi2.ppf(0.05, df=2*counts)/2
+        upper = chi2.ppf(1-0.05, df=2*(counts+1))/2 - counts
+        errors = np.nan_to_num(np.vstack([lower, upper]))
+        x_shift = bins[:-1] + step/2
+        ax2.errorbar(x_shift+shift, dens, yerr=errors/(np.sum(counts)*step), linewidth=0, elinewidth=1, color=color)
 
-ax2.set_xlim(-90, 90)
-ax2.set_xticks([-90, -60, -30, 0, 30, 60, 90])
-step = steps[0]
-ax2.hist(bdf_glm.sun_alt_app, density=True, bins=np.arange(-90, 90+step, step=step),
-         histtype='step', color='black', label='GLM data')
-step = steps[1]
-ax2.hist(bdf_usg.sun_alt_app, density=True, bins=np.arange(-90, 90+step, step=step),
-         histtype='step', color='grey', label='USG data')
-ax2.set_xlabel('Apparent solar altitude [°]')
+    if theory_exists:
+        ax2.plot(df.x_sun_alt, df.v0_sun_alt,
+                 label=r'Predicted, $V_{\infty}\geq0$ km/s, whole Earth', linestyle='--', color='blue')
+        ax2.plot(df.x_sun_alt, df.v50_sun_alt,
+                 label=r'Predicted, $V_{\infty}\geq50$ km/s, whole Earth', linestyle='--', color='red')
+        ax2.plot(df.x_sun_alt, df.v0_sun_alt_glm,
+                 label=r'Predicted, $V_{\infty}\geq0$ km/s, $\in$ GLM FOV', linestyle=':', color='blue')
+        ax2.plot(df.x_sun_alt, df.v50_sun_alt_glm,
+                 label=r'Predicted, $V_{\infty}\geq50$ km/s, $\in$ GLM FOV', linestyle=':', color='red')
 
-handles, labels = axs[0].get_legend_handles_labels()
+    ax2.set_xlim(-90, 90)
+    ax2.set_xticks([-90, -60, -30, 0, 30, 60, 90])
+    step = steps[0]
+    ax2.hist(bdf_glm.sun_alt_app, density=True, bins=np.arange(-90, 90+step, step=step),
+             histtype='step', color='black', label='GLM data')
+    step = steps[1]
+    ax2.hist(bdf_usg.sun_alt_app, density=True, bins=np.arange(-90, 90+step, step=step),
+             histtype='step', color='grey', label='USG data')
+    ax2.set_xlabel('Apparent solar altitude [°]')
 
-axs[0].get_legend().remove()
+    handles, labels = axs[0].get_legend_handles_labels()
 
-left = -1.1
-yloc = 1.0
-if theory_exists:
-    l1 = plt.legend(handles[:4], labels[:4], loc=(left, yloc), frameon=False, ncols=2,
-                    handletextpad=0.3, columnspacing=1, title=r'$\textbf{Predicted}$')
-    plt.legend(handles[4:], labels[4:], loc=(left+1.55, yloc), frameon=False, ncols=1,
-               handletextpad=0.3, columnspacing=1, title=r'$\textbf{Observed}$')
-    plt.gca().add_artist(l1)
-else:
-    plt.legend(handles, labels, loc=(left+1.55, yloc), frameon=False, ncols=1,
-               handletextpad=0.3, columnspacing=1, title=r'$\textbf{Observed}$')
+    axs[0].get_legend().remove()
 
-plt.savefig('plots/solar-theory.png', dpi=300, bbox_inches='tight')
-plt.savefig('plots/solar-theory.pdf', bbox_inches='tight')
+    left = -1.1
+    yloc = 1.0
+    if theory_exists:
+        l1 = plt.legend(handles[:4], labels[:4], loc=(left, yloc), frameon=False, ncols=2,
+                        handletextpad=0.3, columnspacing=1, title=r'$\textbf{Predicted}$')
+        plt.legend(handles[4:], labels[4:], loc=(left+1.55, yloc), frameon=False, ncols=1,
+                   handletextpad=0.3, columnspacing=1, title=r'$\textbf{Observed}$')
+        plt.gca().add_artist(l1)
+    else:
+        plt.legend(handles, labels, loc=(left+1.55, yloc), frameon=False, ncols=1,
+                   handletextpad=0.3, columnspacing=1, title=r'$\textbf{Observed}$')
+
+    plt.savefig(f'plots/solar-theory{suffix}.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'plots/solar-theory{suffix}.pdf', bbox_inches='tight')

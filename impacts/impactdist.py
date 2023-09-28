@@ -1,5 +1,5 @@
 from tqdm import tqdm
-from astropy.coordinates import SkyCoord, HeliocentricTrueEcliptic
+from astropy.coordinates import SkyCoord, HeliocentricTrueEcliptic, EarthLocation
 from astropy.coordinates import ICRS, ITRS
 import astropy.units as u
 from astropy.coordinates import get_sun
@@ -11,7 +11,6 @@ from sklearn.neighbors import KernelDensity
 import pandas as pd
 import numpy as np
 import scipy
-import matplotlib.pyplot as plt
 import os
 
 
@@ -27,7 +26,7 @@ def sample_impacts(min_vinf=None, max_vinf=None,
                    min_eclon=None, max_eclon=None,
                    min_eclat=None, max_eclat=None,
                    vinf=None, eclon=None, eclat=None,
-                   n=1000, dt=None):
+                   n=1000, dt=None, model='granvik-pokorny'):
 
     if min_vinf is None:
         min_vinf = 0
@@ -43,7 +42,11 @@ def sample_impacts(min_vinf=None, max_vinf=None,
         max_eclat = 90
 
     if any([vinf is None, eclon is None, eclat is None]):
-        data = np.loadtxt('../fortran/pvil.dat', skiprows=0).reshape((360, 180, 100))
+        assert model in ['granvik-pokorny', 'mem']
+        if model == 'granvik-pokorny':
+            data = np.loadtxt('../fortran/pvil.dat', skiprows=0).reshape((360, 180, 100))
+        elif model == 'mem':
+            data = np.loadtxt('../fortran/pvil-mem.dat', skiprows=0).reshape((360, 180, 100))
         prob = data/np.sum(data)
         prob = prob[(min_eclon+180):(max_eclon+180), (min_eclat+90):(max_eclat+90), min_vinf:max_vinf]
         print(prob.shape)
@@ -73,8 +76,9 @@ def sample_impacts(min_vinf=None, max_vinf=None,
         print('dt fixed')
         if hasattr(dt, '__iter__'):
             assert len(dt) == n
+            dts = dt
         else:
-            dt = np.full(n, dt)
+            dts = np.full(n, dt)
 
     sollons = np.radians([c.ra.deg for c in get_sun(Time(dts))])
 
@@ -113,9 +117,9 @@ def sample_impacts(min_vinf=None, max_vinf=None,
     icrs.obstime = dts
 
     itrs = icrs.transform_to(ITRS)
-    locs = np.vstack((itrs.x.value, itrs.y.value, itrs.z.value)).T
-    lats = np.degrees(np.arctan(locs[:, 2]/np.linalg.norm(locs[:, [0, 1]], axis=1)))
-    lons = np.degrees(np.arctan2(locs[:, 1], locs[:, 0]))
+    locs = EarthLocation.from_geocentric(itrs.x.value, itrs.y.value, itrs.z.value, unit=u.pc).to_geodetic()
+    lats = locs.lat.value
+    lons = locs.lon.value
 
     from bolides.fov_utils import get_boundary
     from shapely.geometry import Point
@@ -162,18 +166,40 @@ def get_densities(df, samples, colname):
 
     return df
 
+
 if not os.path.exists('impact-dists.csv'):
     df = pd.DataFrame()
-    df['x_solarhour'] = np.linspace(0, 24, 200)
-    df['x_sun_alt'] = np.linspace(-90, 90, 200)
-    df['x_lat'] = np.linspace(-90, 90, 200)
-    for min_vinf in [0, 45, 50, 65]:
-        print(f'Computing impact distributions for vinf >= {min_vinf}')
-        colname = f'v{min_vinf}_'
-        samples = sample_impacts(min_vinf=min_vinf, n=400000)
-        df = get_densities(df, samples, colname)
+else:
+    df = pd.read_csv('impact-dists.csv')
+df['x_solarhour'] = np.linspace(0, 24, 200)
+df['x_sun_alt'] = np.linspace(-90, 90, 200)
+df['x_lat'] = np.linspace(-90, 90, 200)
+for min_vinf in [0, 25, 45, 50, 65]:
+    if f'v{min_vinf}_solarhour' in df.columns:
+        continue
+    print(f'Computing impact distributions for vinf >= {min_vinf}')
+    colname = f'v{min_vinf}_'
+    samples = sample_impacts(min_vinf=min_vinf, n=400000)
+    df = get_densities(df, samples, colname)
 
-    df.to_csv('impact-dists.csv', index=False)
+df.to_csv('impact-dists.csv', index=False)
+
+# impact-dists-mem
+if not os.path.exists('impact-dists-mem.csv'):
+    df = pd.DataFrame()
+else:
+    df = pd.read_csv('impact-dists-mem.csv')
+df['x_solarhour'] = np.linspace(0, 24, 200)
+df['x_sun_alt'] = np.linspace(-90, 90, 200)
+df['x_lat'] = np.linspace(-90, 90, 200)
+for min_vinf in [0, 25, 45, 50, 65]:
+    if f'v{min_vinf}_solarhour' in df.columns:
+        continue
+    print(f'Computing impact distributions for vinf >= {min_vinf}')
+    colname = f'v{min_vinf}_'
+    samples = sample_impacts(min_vinf=min_vinf, n=400000, model='mem')
+    df = get_densities(df, samples, colname)
+df.to_csv('impact-dists-mem.csv', index=False)
 
 if not os.path.exists('leonids-dists.csv'):
     n = 400000

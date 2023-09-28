@@ -213,7 +213,7 @@
       INTEGER lindex  ! column for pvl
       INTEGER Hindex
 
-      parameter(nmax=6) ! Determines the precision of the evaluation of the integral. The value 7 seems to give the best ration between speed and precision
+      parameter(nmax=7) ! Determines the precision of the evaluation of the integral. The value 7 seems to give the best ration between speed and precision
       parameter(coef=2*2*((nmax-2)+3**(nmax-1))) ! Formula for the total number of steps of the integral
 
 
